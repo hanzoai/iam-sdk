@@ -22,9 +22,8 @@
 // Core client (auth, users, orgs, projects → IAM)
 export { IamClient, IamApiError } from "./client.js";
 
-// Billing client (subscriptions, plans, payments, usage → Commerce API)
-// Canonical source: commerce.js/billing. Re-exported here for convenience.
-export { BillingClient, IamBillingClient, CommerceApiError } from "./billing.js";
+// Billing has moved to @hanzo/commerce. Import Commerce from "@hanzo/commerce" instead.
+// See: https://docs.hanzo.ai/services/commerce/sdk
 
 // JWT validation
 export { validateToken, clearJwksCache } from "./auth.js";
