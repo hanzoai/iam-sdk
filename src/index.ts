@@ -27,6 +27,10 @@ export { validateToken, clearJwksCache } from "./auth.js";
 // Billing client
 export { IamBillingClient } from "./billing.js";
 
+// Browser PKCE auth (re-exported from separate entry point too)
+export { BrowserIamSdk, type BrowserIamConfig } from "./browser.js";
+export { generatePkceChallenge, generateState } from "./pkce.js";
+
 // Types (re-export everything)
 export type {
   IamConfig,

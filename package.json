@@ -1,7 +1,7 @@
 {
   "name": "@hanzo/iam",
   "version": "0.1.0",
-  "description": "TypeScript SDK for Hanzo IAM (Casdoor-based identity & access management)",
+  "description": "TypeScript SDK for Hanzo IAM — OIDC auth, JWT validation, OAuth2 PKCE, user/org/billing APIs",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,20 +14,31 @@
       "types": "./dist/auth.d.ts",
       "import": "./dist/auth.js"
     },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
     "./billing": {
       "types": "./dist/billing.d.ts",
       "import": "./dist/billing.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
     }
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run clean && npm run build",
+    "test": "node --test --import tsx src/**/*.test.ts"
   },
   "dependencies": {
     "jose": "^6.1.0"
@@ -41,14 +52,28 @@
     "iam",
     "casdoor",
     "oidc",
+    "oauth2",
+    "pkce",
     "auth",
     "jwt",
-    "identity"
+    "identity",
+    "access-management",
+    "sso"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/hanzo-js/iam.git"
   },
-  "author": "Hanzo AI <engineering@hanzo.ai>"
+  "homepage": "https://docs.hanzo.ai/services/iam/sdk",
+  "bugs": {
+    "url": "https://github.com/hanzo-js/iam/issues"
+  },
+  "author": "Hanzo AI <engineering@hanzo.ai>",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }
