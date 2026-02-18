@@ -1,72 +1,118 @@
 /**
- * Billing client for Hanzo IAM (Casdoor) — subscriptions, plans, pricing, usage.
+ * @hanzo/iam/billing — Billing client for Hanzo Commerce API.
+ *
+ * Canonical billing lives in commerce.js/billing. This provides the same
+ * client for convenience when @hanzo/iam is already installed.
+ * Both talk to Commerce API — one way to do billing.
+ *
+ * @example
+ * ```ts
+ * // Preferred:
+ * import { BillingClient } from 'commerce.js/billing'
+ *
+ * // Also works:
+ * import { BillingClient } from '@hanzo/iam/billing'
+ * ```
  */
-
-import type {
-  IamConfig,
-  IamSubscription,
-  IamPlan,
-  IamPricing,
-  IamPayment,
-  IamOrder,
-  IamApiResponse,
-} from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
-export class IamBillingClient {
-  private readonly baseUrl: string;
-  private readonly clientId: string;
-  private readonly clientSecret: string | undefined;
-  private readonly orgName: string | undefined;
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
 
-  constructor(config: IamConfig) {
-    this.baseUrl = config.serverUrl.replace(/\/+$/, "");
-    this.clientId = config.clientId;
-    this.clientSecret = config.clientSecret;
-    this.orgName = config.orgName;
+export type CommerceConfig = {
+  /** Commerce API base URL (e.g. "https://commerce.hanzo.ai"). */
+  commerceUrl: string;
+  /** Optional IAM access token for authenticated requests. */
+  token?: string;
+};
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type Balance = {
+  balance: number;
+  holds: number;
+  available: number;
+};
+
+export type Transaction = {
+  id?: string;
+  type: "hold" | "hold-removed" | "transfer" | "deposit" | "withdraw";
+  currency: string;
+  amount: number;
+  tags?: string[];
+  expiresAt?: string;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+};
+
+export type Subscription = {
+  id?: string;
+  planId?: string;
+  userId?: string;
+  status?: string;
+  billingType?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  createdAt?: string;
+};
+
+export type Plan = {
+  slug?: string;
+  name?: string;
+  description?: string;
+  price?: number;
+  currency?: string;
+  interval?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type Payment = {
+  id?: string;
+  orderId?: string;
+  amount?: number;
+  currency?: string;
+  status?: string;
+  captured?: boolean;
+  createdAt?: string;
+};
+
+// ---------------------------------------------------------------------------
+// Client
+// ---------------------------------------------------------------------------
+
+export class BillingClient {
+  private readonly baseUrl: string;
+  private token: string | undefined;
+
+  constructor(config: CommerceConfig) {
+    this.baseUrl = config.commerceUrl.replace(/\/+$/, "");
+    this.token = config.token;
   }
 
-  // -----------------------------------------------------------------------
-  // Internal HTTP helper
-  // -----------------------------------------------------------------------
+  setToken(token: string) {
+    this.token = token;
+  }
 
   private async request<T>(
     path: string,
-    opts?: {
-      method?: string;
-      body?: unknown;
-      token?: string;
-      params?: Record<string, string>;
-    },
+    opts?: { method?: string; body?: unknown; token?: string; params?: Record<string, string> },
   ): Promise<T> {
     const url = new URL(path, this.baseUrl);
     if (opts?.params) {
-      for (const [k, v] of Object.entries(opts.params)) {
-        url.searchParams.set(k, v);
-      }
+      for (const [k, v] of Object.entries(opts.params)) url.searchParams.set(k, v);
     }
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
-    const headers: Record<string, string> = {
-      Accept: "application/json",
-    };
-    if (opts?.token) {
-      headers.Authorization = `Bearer ${opts.token}`;
-    }
-    if (opts?.body) {
-      headers["Content-Type"] = "application/json";
-    }
-    if (this.clientSecret && !opts?.token) {
-      const credentials = `${this.clientId}:${this.clientSecret}`;
-      const basic =
-        typeof Buffer !== "undefined"
-          ? Buffer.from(credentials).toString("base64")
-          : btoa(credentials);
-      headers.Authorization = `Basic ${basic}`;
-    }
+    const headers: Record<string, string> = { Accept: "application/json" };
+    const authToken = opts?.token ?? this.token;
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    if (opts?.body) headers["Content-Type"] = "application/json";
 
     try {
       const res = await fetch(url.toString(), {
@@ -75,164 +121,85 @@ export class IamBillingClient {
         body: opts?.body ? JSON.stringify(opts.body) : undefined,
         signal: controller.signal,
       });
-
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        throw new Error(`IAM billing request failed (${res.status}): ${text}`.trim());
+        throw new CommerceApiError(res.status, `${res.statusText}: ${text}`.trim());
       }
-
       return (await res.json()) as T;
     } finally {
       clearTimeout(timer);
     }
   }
 
-  // -----------------------------------------------------------------------
-  // Subscriptions
-  // -----------------------------------------------------------------------
-
-  /** Get all subscriptions for an owner. */
-  async getSubscriptions(token?: string): Promise<IamSubscription[]> {
-    const owner = this.orgName ?? "admin";
-    const resp = await this.request<IamApiResponse<IamSubscription[]>>(
-      "/api/get-subscriptions",
-      { params: { owner }, token },
-    );
-    return resp.data ?? [];
+  async getBalance(user: string, currency = "usd", token?: string): Promise<Balance> {
+    return this.request("/api/v1/billing/balance", { params: { user, currency }, token });
   }
 
-  /** Get a specific subscription by ID ("owner/name" format). */
-  async getSubscription(id: string, token?: string): Promise<IamSubscription | null> {
-    const resp = await this.request<IamApiResponse<IamSubscription>>(
-      "/api/get-subscription",
-      { params: { id }, token },
-    );
-    return resp.data ?? null;
+  async getAllBalances(user: string, token?: string): Promise<Record<string, Balance>> {
+    return this.request("/api/v1/billing/balance/all", { params: { user }, token });
   }
 
-  /** Get the subscription for a specific user. */
-  async getUserSubscription(userId: string, token?: string): Promise<IamSubscription | null> {
-    const subs = await this.getSubscriptions(token);
-    return subs.find((s) => s.user === userId) ?? null;
+  async addUsageRecord(record: { user: string; currency?: string; amount: number; model?: string; provider?: string; tokens?: number }, token?: string): Promise<Transaction> {
+    return this.request("/api/v1/billing/usage", { method: "POST", body: record, token });
   }
 
-  // -----------------------------------------------------------------------
-  // Plans
-  // -----------------------------------------------------------------------
-
-  /** Get all plans for an owner. */
-  async getPlans(token?: string): Promise<IamPlan[]> {
-    const owner = this.orgName ?? "admin";
-    const resp = await this.request<IamApiResponse<IamPlan[]>>(
-      "/api/get-plans",
-      { params: { owner }, token },
-    );
-    return resp.data ?? [];
+  async getUsageRecords(user: string, currency = "usd", token?: string): Promise<Transaction[]> {
+    return this.request("/api/v1/billing/usage", { params: { user, currency }, token });
   }
 
-  /** Get a specific plan by ID. */
-  async getPlan(id: string, token?: string): Promise<IamPlan | null> {
-    const resp = await this.request<IamApiResponse<IamPlan>>(
-      "/api/get-plan",
-      { params: { id }, token },
-    );
-    return resp.data ?? null;
+  async addDeposit(params: { user: string; currency?: string; amount: number; notes?: string; tags?: string[]; expiresIn?: string }, token?: string): Promise<Transaction> {
+    return this.request("/api/v1/billing/deposit", { method: "POST", body: params, token });
   }
 
-  // -----------------------------------------------------------------------
-  // Pricing
-  // -----------------------------------------------------------------------
-
-  /** Get all pricing configurations for an owner. */
-  async getPricings(token?: string): Promise<IamPricing[]> {
-    const owner = this.orgName ?? "admin";
-    const resp = await this.request<IamApiResponse<IamPricing[]>>(
-      "/api/get-pricings",
-      { params: { owner }, token },
-    );
-    return resp.data ?? [];
+  async grantStarterCredit(user: string, token?: string): Promise<Transaction> {
+    return this.request("/api/v1/billing/credit", { method: "POST", body: { user }, token });
   }
 
-  /** Get a specific pricing by ID. */
-  async getPricing(id: string, token?: string): Promise<IamPricing | null> {
-    const resp = await this.request<IamApiResponse<IamPricing>>(
-      "/api/get-pricing",
-      { params: { id }, token },
-    );
-    return resp.data ?? null;
+  async subscribe(params: { planId: string; userId: string }, token?: string): Promise<Subscription> {
+    return this.request("/api/v1/subscribe", { method: "POST", body: params, token });
   }
 
-  // -----------------------------------------------------------------------
-  // Payments
-  // -----------------------------------------------------------------------
-
-  /** Get all payments for an owner. */
-  async getPayments(token?: string): Promise<IamPayment[]> {
-    const owner = this.orgName ?? "admin";
-    const resp = await this.request<IamApiResponse<IamPayment[]>>(
-      "/api/get-payments",
-      { params: { owner }, token },
-    );
-    return resp.data ?? [];
+  async getSubscription(id: string, token?: string): Promise<Subscription | null> {
+    try { return await this.request(`/api/v1/subscribe/${id}`, { token }); } catch { return null; }
   }
 
-  /** Get a specific payment by ID. */
-  async getPayment(id: string, token?: string): Promise<IamPayment | null> {
-    const resp = await this.request<IamApiResponse<IamPayment>>(
-      "/api/get-payment",
-      { params: { id }, token },
-    );
-    return resp.data ?? null;
+  async cancelSubscription(id: string, token?: string): Promise<void> {
+    await this.request(`/api/v1/subscribe/${id}`, { method: "DELETE", token });
   }
 
-  // -----------------------------------------------------------------------
-  // Orders (if supported by IAM)
-  // -----------------------------------------------------------------------
-
-  /** Get all orders for an owner. */
-  async getOrders(token?: string): Promise<IamOrder[]> {
-    const owner = this.orgName ?? "admin";
-    const resp = await this.request<IamApiResponse<IamOrder[]>>(
-      "/api/get-orders",
-      { params: { owner }, token },
-    );
-    return resp.data ?? [];
+  async getPlans(token?: string): Promise<Plan[]> {
+    return this.request("/api/v1/plan", { token });
   }
 
-  /** Get a specific order by ID. */
-  async getOrder(id: string, token?: string): Promise<IamOrder | null> {
-    const resp = await this.request<IamApiResponse<IamOrder>>(
-      "/api/get-order",
-      { params: { id }, token },
-    );
-    return resp.data ?? null;
+  async getPlan(id: string, token?: string): Promise<Plan | null> {
+    try { return await this.request(`/api/v1/plan/${id}`, { token }); } catch { return null; }
   }
 
-  // -----------------------------------------------------------------------
-  // Convenience: check subscription status for an org
-  // -----------------------------------------------------------------------
+  async authorize(orderId: string, token?: string): Promise<Payment> {
+    return this.request(`/api/v1/authorize/${orderId}`, { method: "POST", token });
+  }
 
-  /** Check if an org has an active subscription. */
-  async isSubscriptionActive(orgName: string, token?: string): Promise<{
-    active: boolean;
-    subscription: IamSubscription | null;
-    plan: IamPlan | null;
-  }> {
-    const subs = await this.getSubscriptions(token);
-    // Find subscription matching the org
-    const sub = subs.find(
-      (s) => s.owner === orgName && (s.state === "Active" || s.state === "active"),
-    ) ?? null;
+  async capture(orderId: string, token?: string): Promise<Payment> {
+    return this.request(`/api/v1/capture/${orderId}`, { method: "POST", token });
+  }
 
-    if (!sub) {
-      return { active: false, subscription: null, plan: null };
-    }
+  async charge(orderId: string, token?: string): Promise<Payment> {
+    return this.request(`/api/v1/charge/${orderId}`, { method: "POST", token });
+  }
 
-    let plan: IamPlan | null = null;
-    if (sub.plan) {
-      plan = await this.getPlan(sub.plan, token);
-    }
-
-    return { active: true, subscription: sub, plan };
+  async refund(paymentId: string, token?: string): Promise<Payment> {
+    return this.request(`/api/v1/refund/${paymentId}`, { method: "POST", token });
   }
 }
+
+export class CommerceApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "CommerceApiError";
+    this.status = status;
+  }
+}
+
+// Backwards-compatible alias
+export { BillingClient as IamBillingClient };

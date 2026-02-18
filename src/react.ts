@@ -46,7 +46,7 @@ import type { ReactNode } from "react";
 import { BrowserIamSdk } from "./browser.js";
 import type { BrowserIamConfig } from "./browser.js";
 import { IamClient } from "./client.js";
-import type { IamUser, IamOrganization, TokenResponse } from "./types.js";
+import type { IamUser, IamOrganization, IamProject, TokenResponse } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,6 +96,10 @@ export interface OrgState {
   currentOrgId: string | null;
   /** Switch to a different organization. */
   switchOrg: (orgId: string) => void;
+  /** All projects for the current organization. */
+  projects: IamProject[];
+  /** Currently selected project. */
+  currentProject: IamProject | null;
   /** Currently selected project ID within the org. */
   currentProjectId: string | null;
   /** Switch to a different project (null to clear). */
@@ -367,6 +371,7 @@ export function useIam(): IamContextValue {
 export function useOrganizations(): OrgState {
   const { config, isAuthenticated, accessToken } = useIam();
   const [organizations, setOrganizations] = useState<IamOrganization[]>([]);
+  const [projects, setProjects] = useState<IamProject[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const [currentOrgId, setCurrentOrgId] = useState<string | null>(() => {
@@ -391,6 +396,7 @@ export function useOrganizations(): OrgState {
   useEffect(() => {
     if (!isAuthenticated || !accessToken) {
       setOrganizations([]);
+      setProjects([]);
       return;
     }
 
@@ -459,14 +465,66 @@ export function useOrganizations(): OrgState {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, accessToken, config.serverUrl, config.clientId]);
 
+  // Fetch projects when currentOrgId changes
+  useEffect(() => {
+    if (!isAuthenticated || !accessToken || !currentOrgId) {
+      setProjects([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchProjects = async () => {
+      try {
+        const client = new IamClient({
+          serverUrl: config.serverUrl,
+          clientId: config.clientId,
+        });
+        const orgProjects = await client.getOrganizationProjects(
+          currentOrgId,
+          accessToken,
+        );
+        if (!cancelled) {
+          setProjects(orgProjects);
+          // Auto-select default project if none selected
+          if (!currentProjectId && orgProjects.length > 0) {
+            const defaultProject =
+              orgProjects.find((p) => p.isDefault) ?? orgProjects[0];
+            setCurrentProjectId(defaultProject.name);
+            try {
+              localStorage.setItem(STORAGE_PROJECT_KEY, defaultProject.name);
+            } catch {
+              /* ok */
+            }
+          }
+        }
+      } catch {
+        // Projects API may not be available yet — that's ok
+        if (!cancelled) setProjects([]);
+      }
+    };
+
+    fetchProjects();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, accessToken, currentOrgId, config.serverUrl, config.clientId]);
+
   const currentOrg = useMemo(
     () => organizations.find((o) => o.name === currentOrgId) ?? null,
     [organizations, currentOrgId],
   );
 
+  const currentProject = useMemo(
+    () => projects.find((p) => p.name === currentProjectId) ?? null,
+    [projects, currentProjectId],
+  );
+
   const switchOrg = useCallback((orgId: string) => {
     setCurrentOrgId(orgId);
     setCurrentProjectId(null);
+    setProjects([]);
     try {
       localStorage.setItem(STORAGE_ORG_KEY, orgId);
       localStorage.removeItem(STORAGE_PROJECT_KEY);
@@ -493,6 +551,8 @@ export function useOrganizations(): OrgState {
     currentOrg,
     currentOrgId,
     switchOrg,
+    projects,
+    currentProject,
     currentProjectId,
     switchProject,
     isLoading,

@@ -7,6 +7,7 @@ import type {
   IamApiResponse,
   IamUser,
   IamOrganization,
+  IamProject,
   OidcDiscovery,
   TokenResponse,
 } from "./types.js";
@@ -286,6 +287,41 @@ export class IamClient {
       token,
     );
     return org ? [org] : [];
+  }
+
+  // -----------------------------------------------------------------------
+  // Project
+  // -----------------------------------------------------------------------
+
+  /** List projects (for the configured owner). */
+  async getProjects(token?: string): Promise<IamProject[]> {
+    const owner = this.orgName ?? "admin";
+    const resp = await this.request<IamApiResponse<IamProject[]>>(
+      "/api/get-projects",
+      { params: { owner }, token },
+    );
+    return resp.data ?? [];
+  }
+
+  /** Get a specific project by ID ("owner/name" format). */
+  async getProject(id: string, token?: string): Promise<IamProject | null> {
+    const resp = await this.request<IamApiResponse<IamProject>>(
+      "/api/get-project",
+      { params: { id }, token },
+    );
+    return resp.data ?? null;
+  }
+
+  /** Get all projects for an organization. */
+  async getOrganizationProjects(
+    organization: string,
+    token?: string,
+  ): Promise<IamProject[]> {
+    const resp = await this.request<IamApiResponse<IamProject[]>>(
+      "/api/get-organization-projects",
+      { params: { organization }, token },
+    );
+    return resp.data ?? [];
   }
 
   // -----------------------------------------------------------------------

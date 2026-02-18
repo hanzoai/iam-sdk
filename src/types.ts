@@ -115,10 +115,10 @@ export type IamOrganization = {
 };
 
 // ---------------------------------------------------------------------------
-// Subscription / Plan / Pricing
+// Billing (canonical types — backed by Commerce service)
 // ---------------------------------------------------------------------------
 
-export type IamSubscription = {
+export type Subscription = {
   owner: string;
   name: string;
   displayName?: string;
@@ -133,7 +133,7 @@ export type IamSubscription = {
   description?: string;
 };
 
-export type IamPlan = {
+export type Plan = {
   owner: string;
   name: string;
   displayName?: string;
@@ -147,7 +147,7 @@ export type IamPlan = {
   role?: string;
 };
 
-export type IamPricing = {
+export type Pricing = {
   owner: string;
   name: string;
   displayName?: string;
@@ -159,11 +159,7 @@ export type IamPricing = {
   trialDuration?: number;
 };
 
-// ---------------------------------------------------------------------------
-// Payment / Order
-// ---------------------------------------------------------------------------
-
-export type IamPayment = {
+export type Payment = {
   owner: string;
   name: string;
   displayName?: string;
@@ -177,7 +173,7 @@ export type IamPayment = {
   message?: string;
 };
 
-export type IamOrder = {
+export type Order = {
   owner: string;
   name: string;
   displayName?: string;
@@ -188,6 +184,62 @@ export type IamOrder = {
   currency?: string;
   state?: string;
   message?: string;
+};
+
+export type UsageRecord = {
+  owner: string;
+  name: string;
+  user?: string;
+  application?: string;
+  organization?: string;
+  project?: string;
+  model?: string;
+  provider?: string;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  cost?: number;
+  currency?: string;
+  premium?: boolean;
+  stream?: boolean;
+  status?: string;
+  errorMsg?: string;
+  clientIp?: string;
+  requestId?: string;
+  createdTime?: string;
+};
+
+export type UsageSummary = {
+  totalRequests: number;
+  totalTokens: number;
+  totalCost: number;
+  promptTokens: number;
+  completionTokens: number;
+};
+
+// Backwards-compatible aliases
+export type IamSubscription = Subscription;
+export type IamPlan = Plan;
+export type IamPricing = Pricing;
+export type IamPayment = Payment;
+export type IamOrder = Order;
+export type IamUsageRecord = UsageRecord;
+export type IamUsageSummary = UsageSummary;
+
+// ---------------------------------------------------------------------------
+// Project
+// ---------------------------------------------------------------------------
+
+export type IamProject = {
+  owner: string;
+  name: string;
+  displayName?: string;
+  description?: string;
+  organization: string;
+  tags?: string[];
+  metadata?: Record<string, unknown>;
+  isDefault?: boolean;
+  createdTime?: string;
 };
 
 // ---------------------------------------------------------------------------
