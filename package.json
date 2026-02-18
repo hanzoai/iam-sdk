@@ -1,0 +1,54 @@
+{
+  "name": "@hanzo/iam",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Hanzo IAM (Casdoor-based identity & access management)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
+    "./billing": {
+      "types": "./dist/billing.d.ts",
+      "import": "./dist/billing.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "jose": "^6.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.11",
+    "typescript": "^5.5.0"
+  },
+  "keywords": [
+    "hanzo",
+    "iam",
+    "casdoor",
+    "oidc",
+    "auth",
+    "jwt",
+    "identity"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hanzo-js/iam.git"
+  },
+  "author": "Hanzo AI <engineering@hanzo.ai>"
+}
