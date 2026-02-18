@@ -60,7 +60,11 @@ export class IamBillingClient {
       headers["Content-Type"] = "application/json";
     }
     if (this.clientSecret && !opts?.token) {
-      const basic = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString("base64");
+      const credentials = `${this.clientId}:${this.clientSecret}`;
+      const basic =
+        typeof Buffer !== "undefined"
+          ? Buffer.from(credentials).toString("base64")
+          : btoa(credentials);
       headers.Authorization = `Basic ${basic}`;
     }
 

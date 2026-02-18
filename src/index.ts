@@ -31,6 +31,9 @@ export { IamBillingClient } from "./billing.js";
 export { BrowserIamSdk, type BrowserIamConfig } from "./browser.js";
 export { generatePkceChallenge, generateState } from "./pkce.js";
 
+// React bindings — import from "@hanzo/iam/react" for tree-shaking:
+//   import { IamProvider, useIam, useOrganizations } from "@hanzo/iam/react"
+
 // Types (re-export everything)
 export type {
   IamConfig,

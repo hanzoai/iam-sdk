@@ -25,6 +25,10 @@
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
     }
   },
   "files": [
@@ -43,8 +47,17 @@
   "dependencies": {
     "jose": "^6.1.0"
   },
+  "peerDependencies": {
+    "react": ">=17"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "^22.19.11",
+    "@types/react": "^19.0.0",
     "typescript": "^5.5.0"
   },
   "keywords": [
