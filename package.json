@@ -45,8 +45,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "clean": "rm -rf dist",
-    "prepare": "npm run clean && npm run build",
-    "prepublishOnly": "npm run clean && npm run build",
+    "prepare": "pnpm clean && pnpm build",
+    "prepublishOnly": "pnpm clean && pnpm build",
     "test": "node --test --import tsx src/**/*.test.ts"
   },
   "dependencies": {
