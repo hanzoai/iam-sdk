@@ -591,3 +591,129 @@ export function useIamToken(): {
 
 // Re-export context for advanced use
 export { IamContext };
+
+// ---------------------------------------------------------------------------
+// OrgProjectSwitcher component
+// ---------------------------------------------------------------------------
+
+export interface OrgProjectSwitcherProps {
+  organizations: Array<{ name: string; displayName?: string; owner?: string }>;
+  currentOrgId: string | null;
+  switchOrg: (orgId: string) => void;
+  projects?: Array<{ name: string; displayName?: string; organization?: string; isDefault?: boolean }>;
+  currentProjectId?: string | null;
+  switchProject?: (projectId: string | null) => void;
+  onTenantChange?: (orgId: string | null, projectId: string | null) => void;
+  environment?: string | null;
+  className?: string;
+  alwaysShow?: boolean;
+}
+
+/**
+ * Organization and project switcher component.
+ *
+ * @example
+ * ```tsx
+ * import { useOrganizations, OrgProjectSwitcher } from '@hanzo/iam/react'
+ *
+ * function Nav() {
+ *   const orgState = useOrganizations()
+ *   return <OrgProjectSwitcher {...orgState} />
+ * }
+ * ```
+ */
+export function OrgProjectSwitcher({
+  organizations,
+  currentOrgId,
+  switchOrg,
+  projects = [],
+  currentProjectId = null,
+  switchProject,
+  onTenantChange,
+  environment,
+  className = "",
+  alwaysShow = false,
+}: OrgProjectSwitcherProps) {
+  useEffect(() => {
+    onTenantChange?.(currentOrgId, currentProjectId ?? null);
+  }, [currentOrgId, currentProjectId, onTenantChange]);
+
+  const handleOrgChange = useCallback(
+    (e: { target: { value: string } }) => switchOrg(e.target.value),
+    [switchOrg],
+  );
+
+  const handleProjectChange = useCallback(
+    (e: { target: { value: string } }) => switchProject?.(e.target.value || null),
+    [switchProject],
+  );
+
+  if (!alwaysShow && organizations.length <= 1 && projects.length <= 1) {
+    if (organizations.length === 1) {
+      const org = organizations[0];
+      return createElement(
+        "div",
+        { className: `flex items-center gap-2 text-sm ${className}` },
+        createElement("span", { className: "font-medium" }, org.displayName || org.name),
+        projects.length === 1
+          ? [
+              createElement("span", { className: "text-muted-foreground", key: "sep" }, "/"),
+              createElement("span", { key: "proj" }, projects[0].displayName || projects[0].name),
+            ]
+          : null,
+        environment
+          ? createElement(
+              "span",
+              { className: "rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground" },
+              environment,
+            )
+          : null,
+      );
+    }
+    return null;
+  }
+
+  return createElement(
+    "div",
+    { className: `flex items-center gap-2 ${className}` },
+    createElement(
+      "select",
+      {
+        value: currentOrgId ?? "",
+        onChange: handleOrgChange,
+        className:
+          "h-8 rounded-md border border-border bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring",
+        "aria-label": "Switch organization",
+      },
+      ...organizations.map((org) =>
+        createElement("option", { key: org.name, value: org.name }, org.displayName || org.name),
+      ),
+    ),
+    projects.length > 0 && switchProject
+      ? [
+          createElement("span", { className: "text-muted-foreground", key: "sep" }, "/"),
+          createElement(
+            "select",
+            {
+              key: "proj-select",
+              value: currentProjectId ?? "",
+              onChange: handleProjectChange,
+              className:
+                "h-8 rounded-md border border-border bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring",
+              "aria-label": "Switch project",
+            },
+            ...projects.map((proj) =>
+              createElement("option", { key: proj.name, value: proj.name }, proj.displayName || proj.name),
+            ),
+          ),
+        ]
+      : null,
+    environment
+      ? createElement(
+          "span",
+          { className: "rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground" },
+          environment,
+        )
+      : null,
+  );
+}
