@@ -112,8 +112,6 @@ export class BrowserIamSdk {
    */
   async handleCallback(callbackUrl?: string): Promise<TokenResponse> {
     const url = new URL(callbackUrl ?? window.location.href);
-    const code = url.searchParams.get("code");
-    const state = url.searchParams.get("state");
     const error = url.searchParams.get("error");
 
     if (error) {
@@ -121,13 +119,32 @@ export class BrowserIamSdk {
       throw new Error(`OAuth error: ${desc}`);
     }
 
-    if (!code) {
-      throw new Error("Missing authorization code in callback URL");
+    const state = url.searchParams.get("state");
+    const savedState = this.storage.getItem(KEY_STATE);
+    if (savedState && state !== savedState) {
+      throw new Error("OAuth state mismatch — possible CSRF attack");
     }
 
-    const savedState = this.storage.getItem(KEY_STATE);
-    if (!savedState || savedState !== state) {
-      throw new Error("OAuth state mismatch — possible CSRF attack");
+    // Implicit flow: access_token returned directly in URL
+    const accessToken = url.searchParams.get("access_token");
+    if (accessToken) {
+      this.storage.removeItem(KEY_STATE);
+      this.storage.removeItem(KEY_CODE_VERIFIER);
+
+      const tokens: TokenResponse = {
+        access_token: accessToken,
+        token_type: "Bearer",
+        refresh_token: url.searchParams.get("refresh_token") ?? undefined,
+        expires_in: 7200,
+      };
+      this.storeTokens(tokens);
+      return tokens;
+    }
+
+    // Authorization code flow: exchange code for tokens via PKCE
+    const code = url.searchParams.get("code");
+    if (!code) {
+      throw new Error("Missing authorization code in callback URL");
     }
 
     const codeVerifier = this.storage.getItem(KEY_CODE_VERIFIER);
