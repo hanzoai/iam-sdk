@@ -126,17 +126,24 @@ export async function validateToken(
 
   const claims = payload as unknown as IamJwtClaims;
 
-  if (!claims.sub) {
+  // Hanzo IAM tokens may use owner/name instead of sub claim
+  const sub =
+    claims.sub ||
+    (typeof claims.owner === "string" && typeof claims.name === "string"
+      ? `${claims.owner}/${claims.name}`
+      : undefined);
+
+  if (!sub) {
     return { ok: false, reason: "iam_subject_missing" };
   }
 
   // Casdoor sub format is "org/username" - extract owner
-  const parts = claims.sub.split("/");
+  const parts = sub.split("/");
   const owner = parts.length > 1 ? parts[0] : config.orgName ?? "unknown";
 
   return {
     ok: true,
-    userId: claims.sub,
+    userId: sub,
     email: typeof claims.email === "string" ? claims.email : undefined,
     name:
       typeof claims.name === "string"
