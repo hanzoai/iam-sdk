@@ -1,0 +1,522 @@
+/**
+ * React bindings for @hanzo/iam.
+ *
+ * Provides a context provider, auth hooks, and org/project switching
+ * that can be dropped into any React application.
+ *
+ * @example
+ * ```tsx
+ * import { IamProvider, useIam, useOrganizations } from '@hanzo/iam/react'
+ *
+ * function App() {
+ *   return (
+ *     <IamProvider config={{
+ *       serverUrl: 'https://iam.hanzo.ai',
+ *       clientId: 'my-app',
+ *       redirectUri: `${window.location.origin}/auth/callback`,
+ *     }}>
+ *       <MyApp />
+ *     </IamProvider>
+ *   )
+ * }
+ *
+ * function MyApp() {
+ *   const { user, isAuthenticated, login, logout } = useIam()
+ *   const { organizations, currentOrg, switchOrg } = useOrganizations()
+ *
+ *   if (!isAuthenticated) return <button onClick={() => login()}>Log in</button>
+ *   return <div>Welcome, {user?.displayName}</div>
+ * }
+ * ```
+ *
+ * @packageDocumentation
+ */
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, } from "react";
+import { BrowserIamSdk } from "./browser.js";
+import { IamClient } from "./client.js";
+// ---------------------------------------------------------------------------
+// Context
+// ---------------------------------------------------------------------------
+const IamContext = createContext(null);
+IamContext.displayName = "HanzoIamContext";
+// Storage keys for tenant persistence
+const STORAGE_ORG_KEY = "hanzo_iam_current_org";
+const STORAGE_PROJECT_KEY = "hanzo_iam_current_project";
+const STORAGE_EXPIRES_KEY = "hanzo_iam_expires_at";
+// ---------------------------------------------------------------------------
+// IamProvider
+// ---------------------------------------------------------------------------
+/**
+ * Root provider for Hanzo IAM in React applications.
+ *
+ * Wrap your app (or a subtree) with this provider to enable IAM auth.
+ * Manages the BrowserIamSdk instance, token lifecycle, and auth state.
+ */
+export function IamProvider(props) {
+    const { config, autoInit = true, onAuthChange, children } = props;
+    const sdk = useMemo(() => new BrowserIamSdk(config), 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [config.serverUrl, config.clientId, config.redirectUri]);
+    const [user, setUser] = useState(null);
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isLoading, setIsLoading] = useState(autoInit);
+    const [accessToken, setAccessToken] = useState(sdk.getAccessToken());
+    const [error, setError] = useState(null);
+    const refreshTimerRef = useRef(null);
+    // Schedule token refresh ~60s before expiry
+    const scheduleRefresh = useCallback(() => {
+        if (refreshTimerRef.current)
+            clearTimeout(refreshTimerRef.current);
+        if (sdk.isTokenExpired())
+            return;
+        const storage = config.storage ?? sessionStorage;
+        const expiresAtStr = storage.getItem(STORAGE_EXPIRES_KEY);
+        if (!expiresAtStr)
+            return;
+        const msUntilRefresh = Number(expiresAtStr) - Date.now() - 60_000;
+        if (msUntilRefresh <= 0) {
+            sdk
+                .refreshAccessToken()
+                .then((tokens) => {
+                setAccessToken(tokens.access_token);
+                scheduleRefresh();
+            })
+                .catch(() => {
+                setIsAuthenticated(false);
+                setUser(null);
+                setAccessToken(null);
+            });
+            return;
+        }
+        refreshTimerRef.current = setTimeout(async () => {
+            try {
+                const tokens = await sdk.refreshAccessToken();
+                setAccessToken(tokens.access_token);
+                scheduleRefresh();
+            }
+            catch {
+                setIsAuthenticated(false);
+                setUser(null);
+                setAccessToken(null);
+            }
+        }, msUntilRefresh);
+    }, [sdk, config.storage]);
+    // Auto-init: check stored tokens on mount
+    useEffect(() => {
+        if (!autoInit) {
+            setIsLoading(false);
+            return;
+        }
+        let cancelled = false;
+        const init = async () => {
+            try {
+                const token = await sdk.getValidAccessToken();
+                if (cancelled)
+                    return;
+                if (token) {
+                    setAccessToken(token);
+                    setIsAuthenticated(true);
+                    try {
+                        const info = await sdk.getUserInfo();
+                        if (!cancelled)
+                            setUser(info);
+                    }
+                    catch {
+                        // Token valid but userinfo failed — still authenticated
+                    }
+                    scheduleRefresh();
+                    onAuthChange?.(true);
+                }
+                else {
+                    onAuthChange?.(false);
+                }
+            }
+            catch (err) {
+                if (!cancelled) {
+                    setError(err instanceof Error ? err : new Error(String(err)));
+                    onAuthChange?.(false);
+                }
+            }
+            finally {
+                if (!cancelled)
+                    setIsLoading(false);
+            }
+        };
+        init();
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sdk, autoInit]);
+    // Cleanup refresh timer on unmount
+    useEffect(() => {
+        return () => {
+            if (refreshTimerRef.current)
+                clearTimeout(refreshTimerRef.current);
+        };
+    }, []);
+    // Complete authentication after login/callback
+    const completeAuth = useCallback(async (tokens) => {
+        setAccessToken(tokens.access_token);
+        setIsAuthenticated(true);
+        try {
+            const info = await sdk.getUserInfo();
+            setUser(info);
+        }
+        catch {
+            // ok — token valid, userinfo is optional
+        }
+        scheduleRefresh();
+        onAuthChange?.(true);
+    }, [sdk, scheduleRefresh, onAuthChange]);
+    const login = useCallback(async (params) => {
+        setError(null);
+        await sdk.signinRedirect(params);
+    }, [sdk]);
+    const loginPopup = useCallback(async (params) => {
+        setError(null);
+        try {
+            const tokens = await sdk.signinPopup(params);
+            await completeAuth(tokens);
+        }
+        catch (err) {
+            const e = err instanceof Error ? err : new Error(String(err));
+            setError(e);
+            throw e;
+        }
+    }, [sdk, completeAuth]);
+    const handleCallback = useCallback(async (callbackUrl) => {
+        setError(null);
+        try {
+            const tokens = await sdk.handleCallback(callbackUrl);
+            await completeAuth(tokens);
+            return tokens;
+        }
+        catch (err) {
+            const e = err instanceof Error ? err : new Error(String(err));
+            setError(e);
+            throw e;
+        }
+    }, [sdk, completeAuth]);
+    const logout = useCallback(() => {
+        sdk.clearTokens();
+        setUser(null);
+        setIsAuthenticated(false);
+        setAccessToken(null);
+        setError(null);
+        if (refreshTimerRef.current)
+            clearTimeout(refreshTimerRef.current);
+        try {
+            localStorage.removeItem(STORAGE_ORG_KEY);
+            localStorage.removeItem(STORAGE_PROJECT_KEY);
+        }
+        catch {
+            /* ok */
+        }
+        onAuthChange?.(false);
+    }, [sdk, onAuthChange]);
+    const value = useMemo(() => ({
+        sdk,
+        config,
+        user,
+        isAuthenticated,
+        isLoading,
+        accessToken,
+        login,
+        loginPopup,
+        handleCallback,
+        logout,
+        error,
+    }), [
+        sdk,
+        config,
+        user,
+        isAuthenticated,
+        isLoading,
+        accessToken,
+        login,
+        loginPopup,
+        handleCallback,
+        logout,
+        error,
+    ]);
+    return createElement(IamContext.Provider, { value }, children);
+}
+// ---------------------------------------------------------------------------
+// useIam
+// ---------------------------------------------------------------------------
+/**
+ * Access Hanzo IAM auth state and methods.
+ * Must be used within an `<IamProvider>`.
+ */
+export function useIam() {
+    const ctx = useContext(IamContext);
+    if (!ctx) {
+        throw new Error("useIam() must be used within an <IamProvider>");
+    }
+    return ctx;
+}
+// ---------------------------------------------------------------------------
+// useOrganizations
+// ---------------------------------------------------------------------------
+/**
+ * Manage organization and project switching.
+ *
+ * Fetches the user's organizations from IAM and provides
+ * `switchOrg` / `switchProject` to change the active tenant.
+ * Selection is persisted to localStorage.
+ */
+export function useOrganizations() {
+    const { config, isAuthenticated, accessToken } = useIam();
+    const [organizations, setOrganizations] = useState([]);
+    const [projects, setProjects] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [currentOrgId, setCurrentOrgId] = useState(() => {
+        try {
+            return localStorage.getItem(STORAGE_ORG_KEY);
+        }
+        catch {
+            return null;
+        }
+    });
+    const [currentProjectId, setCurrentProjectId] = useState(() => {
+        try {
+            return localStorage.getItem(STORAGE_PROJECT_KEY);
+        }
+        catch {
+            return null;
+        }
+    });
+    // Fetch organizations when authenticated
+    useEffect(() => {
+        if (!isAuthenticated || !accessToken) {
+            setOrganizations([]);
+            setProjects([]);
+            return;
+        }
+        let cancelled = false;
+        const fetchOrgs = async () => {
+            setIsLoading(true);
+            // 1. Parse JWT sub claim for primary org (immediate, no API call)
+            try {
+                const payload = JSON.parse(atob(accessToken.split(".")[1]));
+                const sub = payload.sub;
+                if (sub?.includes("/")) {
+                    const primaryOrg = sub.split("/")[0];
+                    if (!cancelled) {
+                        const syntheticOrg = {
+                            owner: "admin",
+                            name: primaryOrg,
+                            displayName: primaryOrg,
+                        };
+                        setOrganizations([syntheticOrg]);
+                        if (!currentOrgId) {
+                            setCurrentOrgId(primaryOrg);
+                            try {
+                                localStorage.setItem(STORAGE_ORG_KEY, primaryOrg);
+                            }
+                            catch {
+                                /* ok */
+                            }
+                        }
+                    }
+                }
+            }
+            catch {
+                // Invalid token format — skip JWT parsing
+            }
+            // 2. Try to fetch full org list from API (may fail for non-admin users)
+            try {
+                const client = new IamClient({
+                    serverUrl: config.serverUrl,
+                    clientId: config.clientId,
+                });
+                const orgs = await client.getOrganizations(accessToken);
+                if (!cancelled && orgs.length > 0) {
+                    setOrganizations(orgs);
+                    if (!currentOrgId && orgs.length > 0) {
+                        const firstOrg = orgs[0].name;
+                        setCurrentOrgId(firstOrg);
+                        try {
+                            localStorage.setItem(STORAGE_ORG_KEY, firstOrg);
+                        }
+                        catch {
+                            /* ok */
+                        }
+                    }
+                }
+            }
+            catch {
+                // API call failed — keep JWT-derived org
+            }
+            finally {
+                if (!cancelled)
+                    setIsLoading(false);
+            }
+        };
+        fetchOrgs();
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isAuthenticated, accessToken, config.serverUrl, config.clientId]);
+    // Fetch projects when currentOrgId changes
+    useEffect(() => {
+        if (!isAuthenticated || !accessToken || !currentOrgId) {
+            setProjects([]);
+            return;
+        }
+        let cancelled = false;
+        const fetchProjects = async () => {
+            try {
+                const client = new IamClient({
+                    serverUrl: config.serverUrl,
+                    clientId: config.clientId,
+                });
+                const orgProjects = await client.getOrganizationProjects(currentOrgId, accessToken);
+                if (!cancelled) {
+                    setProjects(orgProjects);
+                    // Auto-select default project if none selected
+                    if (!currentProjectId && orgProjects.length > 0) {
+                        const defaultProject = orgProjects.find((p) => p.isDefault) ?? orgProjects[0];
+                        setCurrentProjectId(defaultProject.name);
+                        try {
+                            localStorage.setItem(STORAGE_PROJECT_KEY, defaultProject.name);
+                        }
+                        catch {
+                            /* ok */
+                        }
+                    }
+                }
+            }
+            catch {
+                // Projects API may not be available yet — that's ok
+                if (!cancelled)
+                    setProjects([]);
+            }
+        };
+        fetchProjects();
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isAuthenticated, accessToken, currentOrgId, config.serverUrl, config.clientId]);
+    const currentOrg = useMemo(() => organizations.find((o) => o.name === currentOrgId) ?? null, [organizations, currentOrgId]);
+    const currentProject = useMemo(() => projects.find((p) => p.name === currentProjectId) ?? null, [projects, currentProjectId]);
+    const switchOrg = useCallback((orgId) => {
+        setCurrentOrgId(orgId);
+        setCurrentProjectId(null);
+        setProjects([]);
+        try {
+            localStorage.setItem(STORAGE_ORG_KEY, orgId);
+            localStorage.removeItem(STORAGE_PROJECT_KEY);
+        }
+        catch {
+            /* ok */
+        }
+    }, []);
+    const switchProject = useCallback((projectId) => {
+        setCurrentProjectId(projectId);
+        try {
+            if (projectId) {
+                localStorage.setItem(STORAGE_PROJECT_KEY, projectId);
+            }
+            else {
+                localStorage.removeItem(STORAGE_PROJECT_KEY);
+            }
+        }
+        catch {
+            /* ok */
+        }
+    }, []);
+    return {
+        organizations,
+        currentOrg,
+        currentOrgId,
+        switchOrg,
+        projects,
+        currentProject,
+        currentProjectId,
+        switchProject,
+        isLoading,
+    };
+}
+// ---------------------------------------------------------------------------
+// useIamToken
+// ---------------------------------------------------------------------------
+/**
+ * Hook that provides a valid access token with auto-refresh capability.
+ * Returns null while loading or if not authenticated.
+ */
+export function useIamToken() {
+    const { sdk, accessToken, isAuthenticated } = useIam();
+    const refresh = useCallback(async () => {
+        try {
+            return await sdk.getValidAccessToken();
+        }
+        catch {
+            return null;
+        }
+    }, [sdk]);
+    return {
+        token: accessToken,
+        isValid: isAuthenticated && !!accessToken && !sdk.isTokenExpired(),
+        refresh,
+    };
+}
+// Re-export context for advanced use
+export { IamContext };
+/**
+ * Organization and project switcher component.
+ *
+ * @example
+ * ```tsx
+ * import { useOrganizations, OrgProjectSwitcher } from '@hanzo/iam/react'
+ *
+ * function Nav() {
+ *   const orgState = useOrganizations()
+ *   return <OrgProjectSwitcher {...orgState} />
+ * }
+ * ```
+ */
+export function OrgProjectSwitcher({ organizations, currentOrgId, switchOrg, projects = [], currentProjectId = null, switchProject, onTenantChange, environment, className = "", alwaysShow = false, }) {
+    useEffect(() => {
+        onTenantChange?.(currentOrgId, currentProjectId ?? null);
+    }, [currentOrgId, currentProjectId, onTenantChange]);
+    const handleOrgChange = useCallback((e) => switchOrg(e.target.value), [switchOrg]);
+    const handleProjectChange = useCallback((e) => switchProject?.(e.target.value || null), [switchProject]);
+    if (!alwaysShow && organizations.length <= 1 && projects.length <= 1) {
+        if (organizations.length === 1) {
+            const org = organizations[0];
+            return createElement("div", { className: `flex items-center gap-2 text-sm ${className}` }, createElement("span", { className: "font-medium" }, org.displayName || org.name), projects.length === 1
+                ? [
+                    createElement("span", { className: "text-muted-foreground", key: "sep" }, "/"),
+                    createElement("span", { key: "proj" }, projects[0].displayName || projects[0].name),
+                ]
+                : null, environment
+                ? createElement("span", { className: "rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground" }, environment)
+                : null);
+        }
+        return null;
+    }
+    return createElement("div", { className: `flex items-center gap-2 ${className}` }, createElement("select", {
+        value: currentOrgId ?? "",
+        onChange: handleOrgChange,
+        className: "h-8 rounded-md border border-border bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring",
+        "aria-label": "Switch organization",
+    }, ...organizations.map((org) => createElement("option", { key: org.name, value: org.name }, org.displayName || org.name))), projects.length > 0 && switchProject
+        ? [
+            createElement("span", { className: "text-muted-foreground", key: "sep" }, "/"),
+            createElement("select", {
+                key: "proj-select",
+                value: currentProjectId ?? "",
+                onChange: handleProjectChange,
+                className: "h-8 rounded-md border border-border bg-background px-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring",
+                "aria-label": "Switch project",
+            }, ...projects.map((proj) => createElement("option", { key: proj.name, value: proj.name }, proj.displayName || proj.name))),
+        ]
+        : null, environment
+        ? createElement("span", { className: "rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground" }, environment)
+        : null);
+}
+//# sourceMappingURL=react.js.map
