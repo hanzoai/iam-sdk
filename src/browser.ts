@@ -33,6 +33,14 @@ export type BrowserIamConfig = IamConfig & {
   scope?: string;
   /** Storage to use for tokens (default: sessionStorage). */
   storage?: Storage;
+  /**
+   * Proxy base URL for token exchange and userinfo requests.
+   * When set, token exchange POSTs go to `${proxyBaseUrl}/auth/token`
+   * and userinfo GETs go to `${proxyBaseUrl}/auth/userinfo` instead of
+   * directly to the IAM server. This avoids CORS issues when the IAM
+   * server doesn't send Access-Control-Allow-Origin headers.
+   */
+  proxyBaseUrl?: string;
 };
 
 export class BrowserIamSdk {
@@ -53,13 +61,32 @@ export class BrowserIamSdk {
     if (this.discoveryCache) return this.discoveryCache;
 
     const baseUrl = this.config.serverUrl.replace(/\/+$/, "");
-    const res = await fetch(`${baseUrl}/.well-known/openid-configuration`, {
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) {
-      throw new Error(`OIDC discovery failed: ${res.status}`);
+
+    // Try fetching the OIDC discovery document. If it fails (e.g. due to
+    // CORS when the IAM server doesn't send Access-Control-Allow-Origin),
+    // construct a fallback from well-known Casdoor/Hanzo IAM endpoint paths.
+    try {
+      const res = await fetch(`${baseUrl}/.well-known/openid-configuration`, {
+        headers: { Accept: "application/json" },
+      });
+      if (res.ok) {
+        this.discoveryCache = (await res.json()) as OidcDiscovery;
+        return this.discoveryCache;
+      }
+    } catch {
+      // CORS or network error — fall through to constructed discovery
     }
-    this.discoveryCache = (await res.json()) as OidcDiscovery;
+
+    this.discoveryCache = {
+      issuer: baseUrl,
+      authorization_endpoint: `${baseUrl}/oauth/authorize`,
+      token_endpoint: `${baseUrl}/oauth/token`,
+      userinfo_endpoint: `${baseUrl}/oauth/userinfo`,
+      jwks_uri: `${baseUrl}/.well-known/jwks`,
+      response_types_supported: ["code", "token", "id_token"],
+      grant_types_supported: ["authorization_code", "implicit", "refresh_token"],
+      scopes_supported: ["openid", "email", "profile"],
+    };
     return this.discoveryCache;
   }
 
@@ -165,7 +192,12 @@ export class BrowserIamSdk {
       code_verifier: codeVerifier,
     });
 
-    const res = await fetch(discovery.token_endpoint, {
+    // Use proxy URL when configured to avoid CORS on the token endpoint.
+    const tokenUrl = this.config.proxyBaseUrl
+      ? `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/auth/token`
+      : discovery.token_endpoint;
+
+    const res = await fetch(tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
@@ -199,7 +231,11 @@ export class BrowserIamSdk {
       refresh_token: refreshToken,
     });
 
-    const res = await fetch(discovery.token_endpoint, {
+    const tokenUrl = this.config.proxyBaseUrl
+      ? `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/auth/token`
+      : discovery.token_endpoint;
+
+    const res = await fetch(tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
@@ -434,7 +470,10 @@ export class BrowserIamSdk {
       throw new Error("No valid access token — user must log in");
     }
     const discovery = await this.getDiscovery();
-    const res = await fetch(discovery.userinfo_endpoint, {
+    const userinfoUrl = this.config.proxyBaseUrl
+      ? `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/auth/userinfo`
+      : discovery.userinfo_endpoint;
+    const res = await fetch(userinfoUrl, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) {
