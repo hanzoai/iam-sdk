@@ -79,7 +79,7 @@ export class BrowserIamSdk {
 
     this.discoveryCache = {
       issuer: baseUrl,
-      authorization_endpoint: `${baseUrl}/oauth/authorize`,
+      authorization_endpoint: `${baseUrl}/login/oauth/authorize`,
       token_endpoint: `${baseUrl}/oauth/token`,
       userinfo_endpoint: `${baseUrl}/oauth/userinfo`,
       jwks_uri: `${baseUrl}/.well-known/jwks`,
