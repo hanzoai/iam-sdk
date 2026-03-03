@@ -4,7 +4,7 @@
  * Provides PKCE-based login redirect, code exchange, token refresh,
  * popup signin, and silent signin for single-page applications.
  *
- * Adapted and modernized from casdoor-js-sdk.
+ * Adapted and modernized for Hanzo IAM.
  */
 import type { IamConfig, TokenResponse } from "./types.js";
 export type BrowserIamConfig = IamConfig & {

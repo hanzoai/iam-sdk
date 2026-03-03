@@ -62,11 +62,11 @@ export function iamProvider(
     clientId: config.clientId,
     clientSecret: config.clientSecret,
     authorization: {
-      url: `${baseUrl}/login/oauth/authorize`,
+      url: `${baseUrl}/oauth/authorize`,
       params: { scope: "openid profile email" },
     },
-    token: { url: `${baseUrl}/api/login/oauth/access_token` },
-    userinfo: { url: `${baseUrl}/api/userinfo` },
+    token: { url: `${baseUrl}/oauth/token` },
+    userinfo: { url: `${baseUrl}/oauth/userinfo` },
     profile(profile: Record<string, unknown>) {
       return {
         id: (profile.sub as string) ?? (profile.id as string) ?? "",

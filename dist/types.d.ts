@@ -1,6 +1,6 @@
 /**
  * Core types for the Hanzo IAM SDK.
- * Based on Casdoor data models.
+ * Hanzo IAM data models.
  */
 export type IamConfig = {
     /** IAM server base URL (e.g. "https://iam.hanzo.ai"). */

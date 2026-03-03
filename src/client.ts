@@ -1,5 +1,5 @@
 /**
- * Core HTTP client for Hanzo IAM (Casdoor) API.
+ * Core HTTP client for Hanzo IAM API.
  */
 
 import type {
@@ -277,7 +277,7 @@ export class IamClient {
     userId: string,
     token?: string,
   ): Promise<IamOrganization[]> {
-    // Casdoor returns orgs the user is a member of via the user's properties.
+    // IAM returns orgs the user is a member of via the user's properties.
     // We can also query via get-user and read their signupApplication/org.
     const user = await this.getUser(userId, token);
     if (!user) return [];

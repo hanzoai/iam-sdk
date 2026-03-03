@@ -1,7 +1,7 @@
 /**
  * JWT validation using jose library + OIDC JWKS discovery.
  *
- * Validates access/ID tokens issued by Hanzo IAM (Casdoor).
+ * Validates access/ID tokens issued by Hanzo IAM.
  */
 import { createRemoteJWKSet, jwtVerify } from "jose";
 // ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ export async function validateToken(token, config) {
             return { ok: false, reason: "iam_token_expired" };
         }
         if (message.includes("audience")) {
-            // Retry without audience check - some Casdoor configs don't set aud
+            // Retry without audience check - some IAM configs don't set aud
             try {
                 const result = await jwtVerify(token, keySet, {
                     issuer,
@@ -115,7 +115,7 @@ export async function validateToken(token, config) {
     if (!sub) {
         return { ok: false, reason: "iam_subject_missing" };
     }
-    // Casdoor sub format is "org/username" - extract owner
+    // IAM sub format is "org/username" - extract owner
     const parts = sub.split("/");
     const owner = parts.length > 1 ? parts[0] : config.orgName ?? "unknown";
     return {

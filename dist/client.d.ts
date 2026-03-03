@@ -1,5 +1,5 @@
 /**
- * Core HTTP client for Hanzo IAM (Casdoor) API.
+ * Core HTTP client for Hanzo IAM API.
  */
 import type { IamConfig, IamUser, IamOrganization, IamProject, OidcDiscovery, TokenResponse } from "./types.js";
 export declare class IamClient {

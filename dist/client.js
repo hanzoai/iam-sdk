@@ -1,5 +1,5 @@
 /**
- * Core HTTP client for Hanzo IAM (Casdoor) API.
+ * Core HTTP client for Hanzo IAM API.
  */
 const DEFAULT_TIMEOUT_MS = 10_000;
 export class IamClient {
@@ -207,7 +207,7 @@ export class IamClient {
     }
     /** Get organizations a user belongs to. */
     async getUserOrganizations(userId, token) {
-        // Casdoor returns orgs the user is a member of via the user's properties.
+        // IAM returns orgs the user is a member of via the user's properties.
         // We can also query via get-user and read their signupApplication/org.
         const user = await this.getUser(userId, token);
         if (!user)

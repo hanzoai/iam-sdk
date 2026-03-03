@@ -39,7 +39,7 @@ export function createIamPassportStrategy(config) {
         const refreshToken = args[2];
         const done = args[4];
         try {
-            const res = await fetch(`${baseUrl}/api/userinfo`, {
+            const res = await fetch(`${baseUrl}/oauth/userinfo`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
             });
             if (!res.ok) {
@@ -53,8 +53,8 @@ export function createIamPassportStrategy(config) {
         }
     };
     return new OAuth2Strategy({
-        authorizationURL: `${baseUrl}/login/oauth/authorize`,
-        tokenURL: `${baseUrl}/api/login/oauth/access_token`,
+        authorizationURL: `${baseUrl}/oauth/authorize`,
+        tokenURL: `${baseUrl}/oauth/token`,
         clientID: config.clientId,
         clientSecret: config.clientSecret ?? "",
         callbackURL: config.callbackUrl,

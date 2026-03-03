@@ -4,7 +4,7 @@
  * Provides PKCE-based login redirect, code exchange, token refresh,
  * popup signin, and silent signin for single-page applications.
  *
- * Adapted and modernized from casdoor-js-sdk.
+ * Adapted and modernized for Hanzo IAM.
  */
 
 import type { IamConfig, TokenResponse, OidcDiscovery } from "./types.js";
@@ -64,7 +64,7 @@ export class BrowserIamSdk {
 
     // Try fetching the OIDC discovery document. If it fails (e.g. due to
     // CORS when the IAM server doesn't send Access-Control-Allow-Origin),
-    // construct a fallback from well-known Casdoor/Hanzo IAM endpoint paths.
+    // construct a fallback from well-known Hanzo IAM endpoint paths.
     try {
       const res = await fetch(`${baseUrl}/.well-known/openid-configuration`, {
         headers: { Accept: "application/json" },
@@ -79,9 +79,9 @@ export class BrowserIamSdk {
 
     this.discoveryCache = {
       issuer: baseUrl,
-      authorization_endpoint: `${baseUrl}/login/oauth/authorize`,
-      token_endpoint: `${baseUrl}/api/login/oauth/access_token`,
-      userinfo_endpoint: `${baseUrl}/api/userinfo`,
+      authorization_endpoint: `${baseUrl}/oauth/authorize`,
+      token_endpoint: `${baseUrl}/oauth/token`,
+      userinfo_endpoint: `${baseUrl}/oauth/userinfo`,
       jwks_uri: `${baseUrl}/.well-known/jwks`,
       response_types_supported: ["code", "token", "id_token"],
       grant_types_supported: ["authorization_code", "implicit", "refresh_token"],

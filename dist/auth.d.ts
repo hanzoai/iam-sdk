@@ -1,7 +1,7 @@
 /**
  * JWT validation using jose library + OIDC JWKS discovery.
  *
- * Validates access/ID tokens issued by Hanzo IAM (Casdoor).
+ * Validates access/ID tokens issued by Hanzo IAM.
  */
 import type { IamConfig, IamAuthResult } from "./types.js";
 /** Clear cached JWKS key sets (useful for testing or key rotation). */

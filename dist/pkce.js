@@ -1,7 +1,7 @@
 /**
  * PKCE (Proof Key for Code Exchange) utilities for browser-side OAuth2 flows.
  *
- * Adapted from casdoor-js-sdk, modernized for native Web Crypto API.
+ * PKCE utilities for OAuth2 flows, using native Web Crypto API.
  */
 function generateRandomString(length) {
     const array = new Uint8Array(length);
