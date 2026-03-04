@@ -1,17 +1,17 @@
 /**
- * NextAuth.js provider for Hanzo IAM (OIDC-based).
+ * NextAuth.js / Auth.js provider for IAM (OIDC-based).
  *
- * Consolidates the HanzoIamProvider and IamProvider implementations
- * so all Next.js apps can share one canonical implementation.
+ * Provides a canonical NextAuth/Auth.js provider configuration
+ * so all Next.js apps can share one implementation.
  *
  * @example
  * ```ts
  * // next-auth config
- * import { HanzoIamProvider } from "@hanzo/iam/nextauth";
+ * import { IamProvider } from "@hanzo/iam/nextauth";
  *
  * export default NextAuth({
  *   providers: [
- *     HanzoIamProvider({
+ *     IamProvider({
  *       serverUrl: process.env.IAM_SERVER_URL!,
  *       clientId: process.env.IAM_CLIENT_ID!,
  *       clientSecret: process.env.IAM_CLIENT_SECRET!,
@@ -23,7 +23,7 @@
  * @packageDocumentation
  */
 /**
- * NextAuth.js / Auth.js compatible OAuth provider for Hanzo IAM.
+ * NextAuth.js / Auth.js compatible OAuth provider for IAM.
  *
  * Uses standard OIDC well-known endpoint for automatic configuration.
  * JWT id_token validation (issuer, audience, signature) is handled by
@@ -31,12 +31,12 @@
  *
  * Pass `checks: ["state", "pkce"]` in options for PKCE alignment.
  */
-export function HanzoIamProvider(options) {
+export function IamProvider(options) {
     const issuer = options.serverUrl.replace(/\/$/, "");
     const checks = options.checks ?? ["state"];
     return {
-        id: "hanzo-iam",
-        name: "Hanzo IAM",
+        id: "iam",
+        name: "IAM",
         type: "oauth",
         wellKnown: `${issuer}/.well-known/openid-configuration`,
         idToken: true,
@@ -62,6 +62,7 @@ export function HanzoIamProvider(options) {
         options,
     };
 }
-// Re-export with alias for backwards compat
-export { HanzoIamProvider as IamProvider };
+// Backwards-compatible aliases
+/** @deprecated Use IamProvider instead */
+export { IamProvider as HanzoIamProvider };
 //# sourceMappingURL=nextauth.js.map

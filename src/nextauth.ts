@@ -1,17 +1,17 @@
 /**
- * NextAuth.js provider for Hanzo IAM (OIDC-based).
+ * NextAuth.js / Auth.js provider for IAM (OIDC-based).
  *
- * Consolidates the HanzoIamProvider and IamProvider implementations
- * so all Next.js apps can share one canonical implementation.
+ * Provides a canonical NextAuth/Auth.js provider configuration
+ * so all Next.js apps can share one implementation.
  *
  * @example
  * ```ts
  * // next-auth config
- * import { HanzoIamProvider } from "@hanzo/iam/nextauth";
+ * import { IamProvider } from "@hanzo/iam/nextauth";
  *
  * export default NextAuth({
  *   providers: [
- *     HanzoIamProvider({
+ *     IamProvider({
  *       serverUrl: process.env.IAM_SERVER_URL!,
  *       clientId: process.env.IAM_CLIENT_ID!,
  *       clientSecret: process.env.IAM_CLIENT_SECRET!,
@@ -23,7 +23,7 @@
  * @packageDocumentation
  */
 
-interface HanzoIamProfile extends Record<string, unknown> {
+export interface IamProfile extends Record<string, unknown> {
   sub: string;
   name: string;
   email: string;
@@ -35,7 +35,7 @@ interface HanzoIamProfile extends Record<string, unknown> {
 }
 
 /**
- * NextAuth.js / Auth.js compatible OAuth provider for Hanzo IAM.
+ * NextAuth.js / Auth.js compatible OAuth provider for IAM.
  *
  * Uses standard OIDC well-known endpoint for automatic configuration.
  * JWT id_token validation (issuer, audience, signature) is handled by
@@ -43,7 +43,7 @@ interface HanzoIamProfile extends Record<string, unknown> {
  *
  * Pass `checks: ["state", "pkce"]` in options for PKCE alignment.
  */
-export function HanzoIamProvider<P extends HanzoIamProfile>(
+export function IamProvider<P extends IamProfile>(
   options: {
     serverUrl: string;
     clientId: string;
@@ -59,8 +59,8 @@ export function HanzoIamProvider<P extends HanzoIamProfile>(
   const checks = options.checks ?? ["state"];
 
   return {
-    id: "hanzo-iam",
-    name: "Hanzo IAM",
+    id: "iam",
+    name: "IAM",
     type: "oauth",
     wellKnown: `${issuer}/.well-known/openid-configuration`,
     idToken: true,
@@ -88,6 +88,8 @@ export function HanzoIamProvider<P extends HanzoIamProfile>(
   };
 }
 
-// Re-export with alias for backwards compat
-export { HanzoIamProvider as IamProvider };
-export type { HanzoIamProfile };
+// Backwards-compatible aliases
+/** @deprecated Use IamProvider instead */
+export { IamProvider as HanzoIamProvider };
+/** @deprecated Use IamProfile instead */
+export type { IamProfile as HanzoIamProfile };

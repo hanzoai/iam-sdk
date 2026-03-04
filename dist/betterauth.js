@@ -1,5 +1,5 @@
 /**
- * BetterAuth SSO provider configuration for Hanzo IAM.
+ * BetterAuth SSO provider configuration for IAM.
  *
  * Returns a provider config object compatible with BetterAuth's
  * `socialProviders` or generic OAuth plugin.
@@ -7,11 +7,11 @@
  * @example
  * ```ts
  * import { betterAuth } from "better-auth";
- * import { hanzoIamProvider } from "@hanzo/iam/betterauth";
+ * import { iamProvider } from "@hanzo/iam/betterauth";
  *
  * export const auth = betterAuth({
  *   socialProviders: [
- *     hanzoIamProvider({
+ *     iamProvider({
  *       serverUrl: process.env.IAM_SERVER_URL!,
  *       clientId: process.env.IAM_CLIENT_ID!,
  *       clientSecret: process.env.IAM_CLIENT_SECRET!,
@@ -23,16 +23,16 @@
  * @packageDocumentation
  */
 /**
- * Create a BetterAuth-compatible social provider for Hanzo IAM.
+ * Create a BetterAuth-compatible social provider for IAM.
  *
  * Works with BetterAuth's SSO plugin or generic OAuth integration.
- * Uses the standard Hanzo IAM / Casdoor OIDC endpoints.
+ * Uses standard OIDC endpoints.
  */
-export function hanzoIamProvider(config) {
+export function iamProvider(config) {
     const baseUrl = config.serverUrl.replace(/\/+$/, "");
     return {
-        id: "hanzo-iam",
-        name: "Hanzo IAM",
+        id: "iam",
+        name: "IAM",
         type: "oidc",
         issuer: baseUrl,
         clientId: config.clientId,
@@ -56,6 +56,9 @@ export function hanzoIamProvider(config) {
         },
     };
 }
-// Backwards-compatible alias
-export { hanzoIamProvider as hanzoIamSocialProvider };
+// Backwards-compatible aliases
+/** @deprecated Use iamProvider instead */
+export { iamProvider as hanzoIamProvider };
+/** @deprecated Use iamProvider instead */
+export { iamProvider as hanzoIamSocialProvider };
 //# sourceMappingURL=betterauth.js.map
