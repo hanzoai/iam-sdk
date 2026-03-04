@@ -50,8 +50,8 @@ export class BrowserIamSdk {
         this.discoveryCache = {
             issuer: baseUrl,
             authorization_endpoint: `${baseUrl}/login/oauth/authorize`,
-            token_endpoint: `${baseUrl}/oauth/token`,
-            userinfo_endpoint: `${baseUrl}/oauth/userinfo`,
+            token_endpoint: `${baseUrl}/api/login/oauth/access_token`,
+            userinfo_endpoint: `${baseUrl}/api/userinfo`,
             jwks_uri: `${baseUrl}/.well-known/jwks`,
             response_types_supported: ["code", "token", "id_token"],
             grant_types_supported: ["authorization_code", "implicit", "refresh_token"],

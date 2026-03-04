@@ -1,6 +1,6 @@
 {
   "name": "@hanzo/iam",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "TypeScript SDK for Hanzo IAM — OIDC auth, JWT validation, OAuth2 PKCE, user/org/project APIs",
   "type": "module",
   "main": "dist/index.js",
@@ -33,6 +33,14 @@
     "./nextauth": {
       "types": "./dist/nextauth.d.ts",
       "import": "./dist/nextauth.js"
+    },
+    "./passport": {
+      "types": "./dist/passport.d.ts",
+      "import": "./dist/passport.js"
+    },
+    "./betterauth": {
+      "types": "./dist/betterauth.d.ts",
+      "import": "./dist/betterauth.js"
     }
   },
   "files": [
