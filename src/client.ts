@@ -183,6 +183,46 @@ export class IamClient {
     }
   }
 
+  /**
+   * Resource Owner Password Credentials grant.
+   * Used for service-to-service auth, CLI login, and e2e tests.
+   */
+  async passwordGrant(params: {
+    username: string;
+    password: string;
+    scope?: string;
+  }): Promise<TokenResponse> {
+    const discovery = await this.getDiscovery();
+    const body = new URLSearchParams({
+      grant_type: "password",
+      client_id: this.clientId,
+      username: params.username,
+      password: params.password,
+      scope: params.scope ?? "openid profile email phone",
+    });
+    if (this.clientSecret) {
+      body.set("client_secret", this.clientSecret);
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+    try {
+      const res = await fetch(discovery.token_endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new IamApiError(res.status, `Password grant failed: ${text}`);
+      }
+      return (await res.json()) as TokenResponse;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** Refresh an access token. */
   async refreshToken(refreshToken: string): Promise<TokenResponse> {
     const discovery = await this.getDiscovery();

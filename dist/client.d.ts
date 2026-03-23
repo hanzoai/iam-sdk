@@ -28,6 +28,15 @@ export declare class IamClient {
         redirectUri: string;
         codeVerifier?: string;
     }): Promise<TokenResponse>;
+    /**
+     * Resource Owner Password Credentials grant.
+     * Used for service-to-service auth, CLI login, and e2e tests.
+     */
+    passwordGrant(params: {
+        username: string;
+        password: string;
+        scope?: string;
+    }): Promise<TokenResponse>;
     /** Refresh an access token. */
     refreshToken(refreshToken: string): Promise<TokenResponse>;
     /** Get user info from access token (OIDC userinfo endpoint). */
