@@ -25,6 +25,6 @@ export { IamClient, IamApiError } from "./client.js";
 // JWT validation
 export { validateToken, clearJwksCache } from "./auth.js";
 // Browser PKCE auth (re-exported from separate entry point too)
-export { IAM } from "./browser.js";
+export { IAM, toIAMToken } from "./browser.js";
 export { generatePKCEChallenge, generateState } from "./pkce.js";
 //# sourceMappingURL=index.js.map

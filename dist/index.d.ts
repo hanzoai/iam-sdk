@@ -20,7 +20,7 @@
  */
 export { IamClient, IamApiError } from "./client.js";
 export { validateToken, clearJwksCache } from "./auth.js";
-export { IAM, type IAMConfig } from "./browser.js";
+export { IAM, toIAMToken, type IAMConfig, type IAMUser, type IAMToken } from "./browser.js";
 export { generatePKCEChallenge, generateState } from "./pkce.js";
 export type { IamConfig, OidcDiscovery, TokenResponse, IamJwtClaims, IamUser, IamOrganization, IamProject, Subscription, Plan, Pricing, Payment, Order, UsageRecord, UsageSummary, IamSubscription, IamPlan, IamPricing, IamPayment, IamOrder, IamUsageRecord, IamUsageSummary, IamAuthResult, IamApiResponse, } from "./types.js";
 //# sourceMappingURL=index.d.ts.map

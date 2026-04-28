@@ -98,7 +98,7 @@ export declare class IAM {
         countryCode: string;
     } | {
         email: string;
-    }, method?: "login" | "signup" | "forget" | "mfaSetup"): Promise<{
+    }, method?: "login" | "signup" | "forget" | "reset" | "mfaSetup"): Promise<{
         ok: boolean;
         error?: string;
     }>;
@@ -170,5 +170,45 @@ export declare class IAM {
      * the local storage.
      */
     logout(): Promise<void>;
+    /**
+     * Build a social-login authorize URL. Used to navigate the user to
+     * Google/Apple/etc. — same as `signinRedirect` but returns the URL
+     * instead of issuing the redirect, so apps can `<a href="...">`.
+     */
+    getSocialLoginUrl(provider: string, scope?: string): Promise<string>;
+    /**
+     * Fetch the current user, shaped into the canonical `IAMUser` form
+     * (camelCase, no `_` keys). Returns null when no token is present.
+     */
+    getUser(): Promise<IAMUser | null>;
 }
+/**
+ * Canonical user shape returned by `IAM#getUser()`. Maps the OIDC userinfo
+ * response (snake_case) to camelCase. Apps should consume this rather than
+ * the raw `Record<string, unknown>` from `getUserInfo()`.
+ */
+export type IAMUser = {
+    sub: string;
+    email?: string;
+    name?: string;
+    givenName?: string;
+    familyName?: string;
+    phoneNumber?: string;
+    emailVerified?: boolean;
+    picture?: string;
+    owner?: string;
+};
+/**
+ * Canonical token shape (camelCase, no `_` keys) for app code.
+ */
+export type IAMToken = {
+    accessToken: string;
+    refreshToken?: string;
+    idToken?: string;
+    expiresIn?: number;
+    tokenType?: string;
+    scope?: string;
+};
+/** Convert the raw OAuth2 token response into the canonical `IAMToken`. */
+export declare function toIAMToken(t: TokenResponse): IAMToken;
 //# sourceMappingURL=browser.d.ts.map
