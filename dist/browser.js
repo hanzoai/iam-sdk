@@ -430,6 +430,9 @@ export class IAM {
      * @param method  Casdoor method: `login`, `signup`, `forget`, `mfaSetup`, etc.
      */
     async sendVerificationCode(contact, method = "login") {
+        // 'reset' is an idiomatic alias for Casdoor's 'forget'.
+        if (method === "reset")
+            method = "forget";
         const isPhone = "phone" in contact;
         const dest = isPhone ? contact.phone : contact.email;
         const params = {
@@ -630,5 +633,63 @@ export class IAM {
         }
         this.clearTokens();
     }
+    // -----------------------------------------------------------------------
+    // High-level helpers — normalize to ergonomic types so apps don't need
+    // their own adapters around the OIDC/Casdoor wire shapes.
+    // -----------------------------------------------------------------------
+    /**
+     * Build a social-login authorize URL. Used to navigate the user to
+     * Google/Apple/etc. — same as `signinRedirect` but returns the URL
+     * instead of issuing the redirect, so apps can `<a href="...">`.
+     */
+    async getSocialLoginUrl(provider, scope = "openid profile email") {
+        const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
+        const state = generateState();
+        this.storage.setItem(KEY_STATE, state);
+        this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
+        const discovery = await this.getDiscovery();
+        const url = new URL(discovery.authorization_endpoint);
+        url.searchParams.set("client_id", this.config.clientId);
+        url.searchParams.set("response_type", "code");
+        url.searchParams.set("redirect_uri", this.config.redirectUri);
+        url.searchParams.set("scope", scope);
+        url.searchParams.set("state", state);
+        url.searchParams.set("code_challenge", codeChallenge);
+        url.searchParams.set("code_challenge_method", "S256");
+        url.searchParams.set("provider", provider);
+        return url.toString();
+    }
+    /**
+     * Fetch the current user, shaped into the canonical `IAMUser` form
+     * (camelCase, no `_` keys). Returns null when no token is present.
+     */
+    async getUser() {
+        const token = await this.getValidAccessToken();
+        if (!token)
+            return null;
+        const u = await this.getUserInfo();
+        return {
+            sub: u.sub ?? "",
+            email: u.email,
+            name: u.name,
+            givenName: u.given_name,
+            familyName: u.family_name,
+            phoneNumber: u.phone_number,
+            emailVerified: u.email_verified,
+            picture: u.picture,
+            owner: u.owner,
+        };
+    }
+}
+/** Convert the raw OAuth2 token response into the canonical `IAMToken`. */
+export function toIAMToken(t) {
+    return {
+        accessToken: t.access_token,
+        refreshToken: t.refresh_token,
+        idToken: t.id_token,
+        expiresIn: t.expires_in,
+        tokenType: t.token_type,
+        scope: t.scope,
+    };
 }
 //# sourceMappingURL=browser.js.map
