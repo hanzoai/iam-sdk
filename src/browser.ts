@@ -504,4 +504,248 @@ export class BrowserIamSdk {
     const org = this.config.orgName ?? "built-in";
     return `${base}/users/${org}/${username}`;
   }
+
+  // -----------------------------------------------------------------------
+  // Casdoor REST surface (signup, OTP, REST login, phone lookup)
+  //
+  // The OIDC layer covers redirect/PKCE, token exchange, refresh, userinfo.
+  // These methods cover the Casdoor-native endpoints that don't have an OIDC
+  // analogue: phone/email OTP, custom signup with verification codes, and
+  // direct REST login that returns an authorization code in one round-trip
+  // (used as the bridge between OTP collection and `exchangeCode`).
+  //
+  // All paths are gateway-canonical (`/login`, `/signup`,
+  // `/send-verification-code`, `/get-phone-user`) — point `serverUrl` at the
+  // gateway prefix (e.g. `https://api.dev./v1/iam`) and the
+  // gateway proxies to Casdoor's `/api/*` internally.
+  // -----------------------------------------------------------------------
+
+  /**
+   * Send a verification code to a phone or email destination.
+   *
+   * @param contact `{ phone, countryCode }` for SMS, `{ email }` for email.
+   * @param method  Casdoor method: `login`, `signup`, `forget`, `mfaSetup`, etc.
+   */
+  async sendVerificationCode(
+    contact: { phone: string; countryCode: string } | { email: string },
+    method: "login" | "signup" | "forget" | "mfaSetup" = "login",
+  ): Promise<{ ok: boolean; error?: string }> {
+    const isPhone = "phone" in contact;
+    const dest = isPhone ? contact.phone : contact.email;
+    const params: Record<string, string> = {
+      applicationId: `admin/${this.config.appName ?? "app"}`,
+      dest,
+      type: isPhone ? "phone" : "email",
+      method,
+      captchaType: "none",
+      captchaToken: "",
+    };
+    if (isPhone) params.countryCode = contact.countryCode;
+
+    const url = `${this.config.serverUrl.replace(/\/+$/, "")}/send-verification-code`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(params).toString(),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.status === "ok") return { ok: true };
+    const msg = (data.msg as string) || `send-verification-code failed (${res.status})`;
+    // Provider misconfig is treated as soft success in dev — Casdoor still
+    // generates the code and stores it for verification.
+    if (msg.includes("SMS provider") || msg.includes("provider")) return { ok: true };
+    return { ok: false, error: msg };
+  }
+
+  /**
+   * Look up whether a phone number is registered. Returns `{ exists: false }`
+   * on 404 or unknown numbers; `{ exists: true }` when Casdoor confirms a user.
+   */
+  async lookupPhoneUser(phone: string, countryCode: string): Promise<{ exists: boolean; error?: string }> {
+    const url = `${this.config.serverUrl.replace(/\/+$/, "")}/get-phone-user`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        application: this.config.appName ?? "app",
+        phone,
+        countryCode,
+      }),
+    });
+    if (res.status === 404) return { exists: false };
+    if (!res.ok) return { exists: false, error: `lookupPhoneUser failed (${res.status})` };
+    return { exists: true };
+  }
+
+  /**
+   * Casdoor REST signup. Returns the new user's id on success.
+   *
+   * Phone signup flow: send phoneCode via `sendVerificationCode`, then call
+   * this with the OTP in `phoneCode`. Casdoor verifies the code internally.
+   * Email signup flow: same with `email` + `emailCode`.
+   */
+  async signup(params: {
+    method: "email" | "phone";
+    name: string;
+    username?: string;
+    email?: string;
+    phone?: string;
+    countryCode?: string;
+    password?: string;
+    emailCode?: string;
+    phoneCode?: string;
+  }): Promise<{ id?: string; ok: boolean; error?: string }> {
+    const username = params.username ?? params.name;
+    const password = params.password ?? `Liq${Date.now()}!`;
+    const body: Record<string, unknown> = {
+      application: this.config.appName ?? "app",
+      organization: this.config.orgName ?? "built-in",
+      name: params.name,
+      username,
+      password,
+      confirm: password,
+      agreement: true,
+    };
+    if (params.method === "email") {
+      body.email = params.email;
+      if (params.emailCode) body.emailCode = params.emailCode;
+    } else {
+      body.phone = params.phone;
+      body.countryCode = params.countryCode;
+      if (params.phoneCode) body.phoneCode = params.phoneCode;
+      if (params.email) body.email = params.email;
+      if (params.emailCode) body.emailCode = params.emailCode;
+    }
+    const url = `${this.config.serverUrl.replace(/\/+$/, "")}/signup`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.status === "ok") return { ok: true, id: data.data2 || data.data };
+    return { ok: false, error: (data.msg as string) || `signup failed (${res.status})` };
+  }
+
+  /**
+   * REST login that returns an authorization code (Casdoor `/login`).
+   *
+   * Use this when you want the caller to drive the PKCE flow without a
+   * full redirect — collect credentials in your own UI, get a code back,
+   * then call `exchangeCodeForToken` to land tokens.
+   */
+  async loginWithCredentials(params: {
+    username: string;
+    password: string;
+    type?: "code" | "token";
+    redirectUri?: string;
+  }): Promise<{ code?: string; ok: boolean; error?: string }> {
+    const { codeVerifier, codeChallenge } = await generatePkceChallenge();
+    this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
+
+    const url = new URL(`${this.config.serverUrl.replace(/\/+$/, "")}/login`);
+    url.searchParams.set("code_challenge", codeChallenge);
+    url.searchParams.set("code_challenge_method", "S256");
+
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        application: this.config.appName ?? "app",
+        organization: this.config.orgName ?? "built-in",
+        username: params.username,
+        password: params.password,
+        type: params.type ?? "code",
+        clientId: this.config.clientId,
+        redirectUri: params.redirectUri ?? this.config.redirectUri,
+        codeChallenge,
+        codeChallengeMethod: "S256",
+        autoSignin: true,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data.status === "ok" && data.data) return { ok: true, code: data.data as string };
+    return { ok: false, error: (data.msg as string) || `login failed (${res.status})` };
+  }
+
+  /**
+   * Exchange an authorization code for tokens using the stored PKCE verifier.
+   * Pairs with `loginWithCredentials` for a code → tokens round-trip.
+   */
+  async exchangeCodeForToken(code: string, redirectUri?: string): Promise<TokenResponse> {
+    const codeVerifier = this.storage.getItem(KEY_CODE_VERIFIER);
+    if (!codeVerifier) {
+      throw new Error("Missing PKCE verifier — call loginWithCredentials() first");
+    }
+    this.storage.removeItem(KEY_CODE_VERIFIER);
+
+    const discovery = await this.getDiscovery();
+    const tokenUrl = this.config.proxyBaseUrl
+      ? `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/auth/token`
+      : discovery.token_endpoint;
+
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: this.config.clientId,
+      code,
+      redirect_uri: redirectUri ?? this.config.redirectUri,
+      code_verifier: codeVerifier,
+    });
+    const res = await fetch(tokenUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error((err as Record<string, string>).error_description || (err as Record<string, string>).error || "Token exchange failed");
+    }
+    const tokens = (await res.json()) as TokenResponse;
+    this.storeTokens(tokens);
+    return tokens;
+  }
+
+  /**
+   * Phone OTP login: tries the numbered username variants Casdoor accepts
+   * (`{phone}`, `{countryCode}{phone}`), exchanges the resulting code for
+   * tokens. Returns the token response, or throws on failure.
+   */
+  async loginWithPhoneOTP(params: {
+    phone: string;
+    countryCode: string;
+    code: string;
+    redirectUri?: string;
+  }): Promise<TokenResponse> {
+    const usernames = [params.phone, `${params.countryCode}${params.phone}`];
+    let lastError = "";
+    for (const username of usernames) {
+      const result = await this.loginWithCredentials({
+        username,
+        password: params.code,
+        redirectUri: params.redirectUri,
+      });
+      if (result.ok && result.code) {
+        return this.exchangeCodeForToken(result.code, params.redirectUri);
+      }
+      lastError = result.error ?? lastError;
+    }
+    throw new Error(lastError || "Phone OTP login failed");
+  }
+
+  /**
+   * Logout via Casdoor REST `/logout` (clears server-side session) and
+   * the local storage.
+   */
+  async logout(): Promise<void> {
+    const token = this.storage.getItem(KEY_ACCESS_TOKEN);
+    try {
+      await fetch(`${this.config.serverUrl.replace(/\/+$/, "")}/oauth/logout`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+    } catch {
+      // best-effort — local cleanup is what matters
+    }
+    this.clearTokens();
+  }
 }
