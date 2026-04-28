@@ -32,12 +32,12 @@
  * @packageDocumentation
  */
 import type { ReactNode } from "react";
-import { BrowserIamSdk } from "./browser.js";
-import type { BrowserIamConfig } from "./browser.js";
+import { IAM } from "./browser.js";
+import type { IAMConfig } from "./browser.js";
 import type { IamUser, IamOrganization, IamProject, TokenResponse } from "./types.js";
 export interface IamProviderProps {
     /** Browser IAM SDK configuration. */
-    config: BrowserIamConfig;
+    config: IAMConfig;
     /** Auto-initialize on mount (check stored tokens). Default: true. */
     autoInit?: boolean;
     /** Called when authentication state changes. */
@@ -45,10 +45,10 @@ export interface IamProviderProps {
     children: ReactNode;
 }
 export interface IamContextValue {
-    /** The underlying BrowserIamSdk instance for advanced use. */
-    sdk: BrowserIamSdk;
+    /** The underlying IAM instance for advanced use. */
+    sdk: IAM;
     /** The IAM configuration. */
-    config: BrowserIamConfig;
+    config: IAMConfig;
     /** Authenticated user (null if not logged in). */
     user: IamUser | null;
     /** Whether the user is currently authenticated. */
@@ -98,7 +98,7 @@ declare const IamContext: import("react").Context<IamContextValue | null>;
  * Root provider for Hanzo IAM in React applications.
  *
  * Wrap your app (or a subtree) with this provider to enable IAM auth.
- * Manages the BrowserIamSdk instance, token lifecycle, and auth state.
+ * Manages the IAM instance, token lifecycle, and auth state.
  */
 export declare function IamProvider(props: IamProviderProps): import("react").FunctionComponentElement<import("react").ProviderProps<IamContextValue | null>>;
 /**

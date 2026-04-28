@@ -32,7 +32,7 @@
  * @packageDocumentation
  */
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState, } from "react";
-import { BrowserIamSdk } from "./browser.js";
+import { IAM } from "./browser.js";
 import { IamClient } from "./client.js";
 // ---------------------------------------------------------------------------
 // Context
@@ -50,11 +50,11 @@ const STORAGE_EXPIRES_KEY = "hanzo_iam_expires_at";
  * Root provider for Hanzo IAM in React applications.
  *
  * Wrap your app (or a subtree) with this provider to enable IAM auth.
- * Manages the BrowserIamSdk instance, token lifecycle, and auth state.
+ * Manages the IAM instance, token lifecycle, and auth state.
  */
 export function IamProvider(props) {
     const { config, autoInit = true, onAuthChange, children } = props;
-    const sdk = useMemo(() => new BrowserIamSdk(config), 
+    const sdk = useMemo(() => new IAM(config), 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [config.serverUrl, config.clientId, config.redirectUri]);
     const [user, setUser] = useState(null);

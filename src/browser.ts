@@ -8,7 +8,7 @@
  */
 
 import type { IamConfig, TokenResponse, OidcDiscovery } from "./types.js";
-import { generatePkceChallenge, generateState } from "./pkce.js";
+import { generatePKCEChallenge, generateState } from "./pkce.js";
 
 // ---------------------------------------------------------------------------
 // Storage keys
@@ -26,7 +26,7 @@ const KEY_EXPIRES_AT = `${STORAGE_PREFIX}expires_at`;
 // Browser IAM SDK
 // ---------------------------------------------------------------------------
 
-export type BrowserIamConfig = IamConfig & {
+export type IAMConfig = IamConfig & {
   /** OAuth2 redirect URI (e.g. "https://app.hanzo.bot/auth/callback"). */
   redirectUri: string;
   /** OAuth2 scopes (default: "openid profile email"). */
@@ -43,12 +43,12 @@ export type BrowserIamConfig = IamConfig & {
   proxyBaseUrl?: string;
 };
 
-export class BrowserIamSdk {
-  private readonly config: BrowserIamConfig;
+export class IAM {
+  private readonly config: IAMConfig;
   private readonly storage: Storage;
   private discoveryCache: OidcDiscovery | null = null;
 
-  constructor(config: BrowserIamConfig) {
+  constructor(config: IAMConfig) {
     this.config = config;
     this.storage = config.storage ?? sessionStorage;
   }
@@ -102,7 +102,7 @@ export class BrowserIamSdk {
    */
   async signinRedirect(params?: { additionalParams?: Record<string, string> }): Promise<void> {
     const discovery = await this.getDiscovery();
-    const { codeVerifier, codeChallenge } = await generatePkceChallenge();
+    const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
     const state = generateState();
 
     this.storage.setItem(KEY_STATE, state);
@@ -265,7 +265,7 @@ export class BrowserIamSdk {
     additionalParams?: Record<string, string>;
   }): Promise<TokenResponse> {
     const discovery = await this.getDiscovery();
-    const { codeVerifier, codeChallenge } = await generatePkceChallenge();
+    const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
     const state = generateState();
 
     this.storage.setItem(KEY_STATE, state);
@@ -335,7 +335,7 @@ export class BrowserIamSdk {
    */
   async signinSilent(timeoutMs = 5000): Promise<TokenResponse | null> {
     const discovery = await this.getDiscovery();
-    const { codeVerifier, codeChallenge } = await generatePkceChallenge();
+    const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
     const state = generateState();
 
     this.storage.setItem(KEY_STATE, state);
@@ -640,7 +640,7 @@ export class BrowserIamSdk {
     type?: "code" | "token";
     redirectUri?: string;
   }): Promise<{ code?: string; ok: boolean; error?: string }> {
-    const { codeVerifier, codeChallenge } = await generatePkceChallenge();
+    const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
     this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
 
     const url = new URL(`${this.config.serverUrl.replace(/\/+$/, "")}/login`);

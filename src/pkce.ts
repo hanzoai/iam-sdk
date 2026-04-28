@@ -27,7 +27,7 @@ function base64UrlEncode(buffer: ArrayBuffer): string {
 }
 
 /** Generate a PKCE code verifier + challenge pair. */
-export async function generatePkceChallenge(): Promise<{
+export async function generatePKCEChallenge(): Promise<{
   codeVerifier: string;
   codeChallenge: string;
 }> {

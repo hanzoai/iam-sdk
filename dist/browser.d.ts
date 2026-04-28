@@ -7,7 +7,7 @@
  * Adapted and modernized for Hanzo IAM.
  */
 import type { IamConfig, TokenResponse } from "./types.js";
-export type BrowserIamConfig = IamConfig & {
+export type IAMConfig = IamConfig & {
     /** OAuth2 redirect URI (e.g. "https://app.hanzo.bot/auth/callback"). */
     redirectUri: string;
     /** OAuth2 scopes (default: "openid profile email"). */
@@ -23,11 +23,11 @@ export type BrowserIamConfig = IamConfig & {
      */
     proxyBaseUrl?: string;
 };
-export declare class BrowserIamSdk {
+export declare class IAM {
     private readonly config;
     private readonly storage;
     private discoveryCache;
-    constructor(config: BrowserIamConfig);
+    constructor(config: IAMConfig);
     private getDiscovery;
     /**
      * Start the OAuth2 PKCE login flow by redirecting to the IAM authorize endpoint.
