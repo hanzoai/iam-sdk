@@ -6,7 +6,7 @@
  *
  * Adapted and modernized for Hanzo IAM.
  */
-import { generatePkceChallenge, generateState } from "./pkce.js";
+import { generatePKCEChallenge, generateState } from "./pkce.js";
 // ---------------------------------------------------------------------------
 // Storage keys
 // ---------------------------------------------------------------------------
@@ -17,7 +17,7 @@ const KEY_ACCESS_TOKEN = `${STORAGE_PREFIX}access_token`;
 const KEY_REFRESH_TOKEN = `${STORAGE_PREFIX}refresh_token`;
 const KEY_ID_TOKEN = `${STORAGE_PREFIX}id_token`;
 const KEY_EXPIRES_AT = `${STORAGE_PREFIX}expires_at`;
-export class BrowserIamSdk {
+export class IAM {
     config;
     storage;
     discoveryCache = null;
@@ -70,7 +70,7 @@ export class BrowserIamSdk {
      */
     async signinRedirect(params) {
         const discovery = await this.getDiscovery();
-        const { codeVerifier, codeChallenge } = await generatePkceChallenge();
+        const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
         const state = generateState();
         this.storage.setItem(KEY_STATE, state);
         this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
@@ -202,7 +202,7 @@ export class BrowserIamSdk {
      */
     async signinPopup(params) {
         const discovery = await this.getDiscovery();
-        const { codeVerifier, codeChallenge } = await generatePkceChallenge();
+        const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
         const state = generateState();
         this.storage.setItem(KEY_STATE, state);
         this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
@@ -260,7 +260,7 @@ export class BrowserIamSdk {
      */
     async signinSilent(timeoutMs = 5000) {
         const discovery = await this.getDiscovery();
-        const { codeVerifier, codeChallenge } = await generatePkceChallenge();
+        const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
         const state = generateState();
         this.storage.setItem(KEY_STATE, state);
         this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
@@ -532,7 +532,7 @@ export class BrowserIamSdk {
      * then call `exchangeCodeForToken` to land tokens.
      */
     async loginWithCredentials(params) {
-        const { codeVerifier, codeChallenge } = await generatePkceChallenge();
+        const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
         this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
         const url = new URL(`${this.config.serverUrl.replace(/\/+$/, "")}/login`);
         url.searchParams.set("code_challenge", codeChallenge);

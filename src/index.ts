@@ -29,8 +29,8 @@ export { IamClient, IamApiError } from "./client.js";
 export { validateToken, clearJwksCache } from "./auth.js";
 
 // Browser PKCE auth (re-exported from separate entry point too)
-export { BrowserIamSdk, type BrowserIamConfig } from "./browser.js";
-export { generatePkceChallenge, generateState } from "./pkce.js";
+export { IAM, type IAMConfig } from "./browser.js";
+export { generatePKCEChallenge, generateState } from "./pkce.js";
 
 // React bindings — import from "@hanzo/iam/react" for tree-shaking:
 //   import { IamProvider, useIam, useOrganizations } from "@hanzo/iam/react"

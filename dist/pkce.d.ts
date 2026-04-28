@@ -4,7 +4,7 @@
  * PKCE utilities for OAuth2 flows, using native Web Crypto API.
  */
 /** Generate a PKCE code verifier + challenge pair. */
-export declare function generatePkceChallenge(): Promise<{
+export declare function generatePKCEChallenge(): Promise<{
     codeVerifier: string;
     codeChallenge: string;
 }>;

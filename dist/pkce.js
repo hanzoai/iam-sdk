@@ -23,7 +23,7 @@ function base64UrlEncode(buffer) {
     return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 /** Generate a PKCE code verifier + challenge pair. */
-export async function generatePkceChallenge() {
+export async function generatePKCEChallenge() {
     const codeVerifier = generateRandomString(64);
     const hash = await sha256(codeVerifier);
     const codeChallenge = base64UrlEncode(hash);
