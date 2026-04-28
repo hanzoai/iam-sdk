@@ -45,9 +45,9 @@ export declare class IAM {
      * Call this on your callback page (e.g. /auth/callback).
      * Returns the token response, or throws if the state doesn't match.
      */
-    handleCallback(callbackUrl?: string): Promise<TokenResponse>;
+    handleCallback(callbackUrl?: string): Promise<IAMToken>;
     /** Refresh the access token using the stored refresh token. */
-    refreshAccessToken(): Promise<TokenResponse>;
+    refreshAccessToken(): Promise<IAMToken>;
     /**
      * Open the IAM login page in a popup window. Resolves when the popup
      * completes the OAuth flow and returns tokens.
@@ -56,13 +56,13 @@ export declare class IAM {
         width?: number;
         height?: number;
         additionalParams?: Record<string, string>;
-    }): Promise<TokenResponse>;
+    }): Promise<IAMToken>;
     /**
      * Attempt silent authentication via a hidden iframe.
      * Useful for checking if the user has an active IAM session.
      * Returns null if silent auth fails (user needs to log in interactively).
      */
-    signinSilent(timeoutMs?: number): Promise<TokenResponse | null>;
+    signinSilent(timeoutMs?: number): Promise<IAMToken | null>;
     private storeTokens;
     /** Get the stored access token (may be expired). */
     getAccessToken(): string | null;
@@ -153,7 +153,7 @@ export declare class IAM {
      * Exchange an authorization code for tokens using the stored PKCE verifier.
      * Pairs with `loginWithCredentials` for a code → tokens round-trip.
      */
-    exchangeCodeForToken(code: string, redirectUri?: string): Promise<TokenResponse>;
+    exchangeCodeForToken(code: string, redirectUri?: string): Promise<IAMToken>;
     /**
      * Phone OTP login: tries the numbered username variants Casdoor accepts
      * (`{phone}`, `{countryCode}{phone}`), exchanges the resulting code for
@@ -164,7 +164,7 @@ export declare class IAM {
         countryCode: string;
         code: string;
         redirectUri?: string;
-    }): Promise<TokenResponse>;
+    }): Promise<IAMToken>;
     /**
      * Logout via Casdoor REST `/logout` (clears server-side session) and
      * the local storage.

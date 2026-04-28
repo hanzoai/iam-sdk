@@ -137,7 +137,7 @@ export class IAM {
    * Call this on your callback page (e.g. /auth/callback).
    * Returns the token response, or throws if the state doesn't match.
    */
-  async handleCallback(callbackUrl?: string): Promise<TokenResponse> {
+  async handleCallback(callbackUrl?: string): Promise<IAMToken> {
     const url = new URL(callbackUrl ?? window.location.href);
     const error = url.searchParams.get("error");
 
@@ -165,7 +165,7 @@ export class IAM {
         expires_in: 7200,
       };
       this.storeTokens(tokens);
-      return tokens;
+      return toIAMToken(tokens);
     }
 
     // Authorization code flow: exchange code for tokens via PKCE
@@ -210,7 +210,7 @@ export class IAM {
 
     const tokens = (await res.json()) as TokenResponse;
     this.storeTokens(tokens);
-    return tokens;
+    return toIAMToken(tokens);
   }
 
   // -----------------------------------------------------------------------
@@ -218,7 +218,7 @@ export class IAM {
   // -----------------------------------------------------------------------
 
   /** Refresh the access token using the stored refresh token. */
-  async refreshAccessToken(): Promise<TokenResponse> {
+  async refreshAccessToken(): Promise<IAMToken> {
     const refreshToken = this.storage.getItem(KEY_REFRESH_TOKEN);
     if (!refreshToken) {
       throw new Error("No refresh token available");
@@ -248,7 +248,7 @@ export class IAM {
 
     const tokens = (await res.json()) as TokenResponse;
     this.storeTokens(tokens);
-    return tokens;
+    return toIAMToken(tokens);
   }
 
   // -----------------------------------------------------------------------
@@ -263,7 +263,7 @@ export class IAM {
     width?: number;
     height?: number;
     additionalParams?: Record<string, string>;
-  }): Promise<TokenResponse> {
+  }): Promise<IAMToken> {
     const discovery = await this.getDiscovery();
     const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
     const state = generateState();
@@ -291,7 +291,7 @@ export class IAM {
     const left = window.screenX + (window.outerWidth - width) / 2;
     const top = window.screenY + (window.outerHeight - height) / 2;
 
-    return new Promise<TokenResponse>((resolve, reject) => {
+    return new Promise<IAMToken>((resolve, reject) => {
       const popup = window.open(
         url.toString(),
         "hanzo_iam_login",
@@ -333,7 +333,7 @@ export class IAM {
    * Useful for checking if the user has an active IAM session.
    * Returns null if silent auth fails (user needs to log in interactively).
    */
-  async signinSilent(timeoutMs = 5000): Promise<TokenResponse | null> {
+  async signinSilent(timeoutMs = 5000): Promise<IAMToken | null> {
     const discovery = await this.getDiscovery();
     const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
     const state = generateState();
@@ -351,7 +351,7 @@ export class IAM {
     url.searchParams.set("code_challenge_method", "S256");
     url.searchParams.set("prompt", "none"); // No interactive login
 
-    return new Promise<TokenResponse | null>((resolve) => {
+    return new Promise<IAMToken | null>((resolve) => {
       const iframe = document.createElement("iframe");
       iframe.style.display = "none";
 
@@ -441,7 +441,7 @@ export class IAM {
     if (this.getRefreshToken()) {
       try {
         const tokens = await this.refreshAccessToken();
-        return tokens.access_token;
+        return tokens.accessToken;
       } catch {
         return null;
       }
@@ -674,7 +674,7 @@ export class IAM {
    * Exchange an authorization code for tokens using the stored PKCE verifier.
    * Pairs with `loginWithCredentials` for a code → tokens round-trip.
    */
-  async exchangeCodeForToken(code: string, redirectUri?: string): Promise<TokenResponse> {
+  async exchangeCodeForToken(code: string, redirectUri?: string): Promise<IAMToken> {
     const codeVerifier = this.storage.getItem(KEY_CODE_VERIFIER);
     if (!codeVerifier) {
       throw new Error("Missing PKCE verifier — call loginWithCredentials() first");
@@ -704,7 +704,7 @@ export class IAM {
     }
     const tokens = (await res.json()) as TokenResponse;
     this.storeTokens(tokens);
-    return tokens;
+    return toIAMToken(tokens);
   }
 
   /**
@@ -717,7 +717,7 @@ export class IAM {
     countryCode: string;
     code: string;
     redirectUri?: string;
-  }): Promise<TokenResponse> {
+  }): Promise<IAMToken> {
     const usernames = [params.phone, `${params.countryCode}${params.phone}`];
     let lastError = "";
     for (const username of usernames) {

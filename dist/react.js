@@ -78,7 +78,7 @@ export function IamProvider(props) {
             sdk
                 .refreshAccessToken()
                 .then((tokens) => {
-                setAccessToken(tokens.access_token);
+                setAccessToken(tokens.accessToken);
                 scheduleRefresh();
             })
                 .catch(() => {
@@ -91,7 +91,7 @@ export function IamProvider(props) {
         refreshTimerRef.current = setTimeout(async () => {
             try {
                 const tokens = await sdk.refreshAccessToken();
-                setAccessToken(tokens.access_token);
+                setAccessToken(tokens.accessToken);
                 scheduleRefresh();
             }
             catch {
@@ -157,7 +157,7 @@ export function IamProvider(props) {
     }, []);
     // Complete authentication after login/callback
     const completeAuth = useCallback(async (tokens) => {
-        setAccessToken(tokens.access_token);
+        setAccessToken(tokens.accessToken);
         setIsAuthenticated(true);
         try {
             const info = await sdk.getUserInfo();

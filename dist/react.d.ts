@@ -34,7 +34,8 @@
 import type { ReactNode } from "react";
 import { IAM } from "./browser.js";
 import type { IAMConfig } from "./browser.js";
-import type { IamUser, IamOrganization, IamProject, TokenResponse } from "./types.js";
+import type { IamUser, IamOrganization, IamProject } from "./types.js";
+import type { IAMToken } from "./browser.js";
 export interface IamProviderProps {
     /** Browser IAM SDK configuration. */
     config: IAMConfig;
@@ -67,7 +68,7 @@ export interface IamContextValue {
         height?: number;
     }) => Promise<void>;
     /** Handle OAuth callback — call on your /auth/callback route. */
-    handleCallback: (callbackUrl?: string) => Promise<TokenResponse>;
+    handleCallback: (callbackUrl?: string) => Promise<IAMToken>;
     /** Log out and clear all tokens. */
     logout: () => void;
     /** Last auth error, if any. */
