@@ -123,7 +123,7 @@ export class IAM {
                 expires_in: 7200,
             };
             this.storeTokens(tokens);
-            return tokens;
+            return toIAMToken(tokens);
         }
         // Authorization code flow: exchange code for tokens via PKCE
         const code = url.searchParams.get("code");
@@ -160,7 +160,7 @@ export class IAM {
         }
         const tokens = (await res.json());
         this.storeTokens(tokens);
-        return tokens;
+        return toIAMToken(tokens);
     }
     // -----------------------------------------------------------------------
     // Token refresh
@@ -191,7 +191,7 @@ export class IAM {
         }
         const tokens = (await res.json());
         this.storeTokens(tokens);
-        return tokens;
+        return toIAMToken(tokens);
     }
     // -----------------------------------------------------------------------
     // Popup signin
@@ -351,7 +351,7 @@ export class IAM {
         if (this.getRefreshToken()) {
             try {
                 const tokens = await this.refreshAccessToken();
-                return tokens.access_token;
+                return tokens.accessToken;
             }
             catch {
                 return null;
@@ -593,7 +593,7 @@ export class IAM {
         }
         const tokens = (await res.json());
         this.storeTokens(tokens);
-        return tokens;
+        return toIAMToken(tokens);
     }
     /**
      * Phone OTP login: tries the numbered username variants Casdoor accepts

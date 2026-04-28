@@ -46,7 +46,8 @@ import type { ReactNode } from "react";
 import { IAM } from "./browser.js";
 import type { IAMConfig } from "./browser.js";
 import { IamClient } from "./client.js";
-import type { IamUser, IamOrganization, IamProject, TokenResponse } from "./types.js";
+import type { IamUser, IamOrganization, IamProject } from "./types.js";
+import type { IAMToken } from "./browser.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,7 +81,7 @@ export interface IamContextValue {
   /** Open IAM login in a popup. */
   loginPopup: (params?: { width?: number; height?: number }) => Promise<void>;
   /** Handle OAuth callback — call on your /auth/callback route. */
-  handleCallback: (callbackUrl?: string) => Promise<TokenResponse>;
+  handleCallback: (callbackUrl?: string) => Promise<IAMToken>;
   /** Log out and clear all tokens. */
   logout: () => void;
   /** Last auth error, if any. */
@@ -162,7 +163,7 @@ export function IamProvider(props: IamProviderProps) {
       sdk
         .refreshAccessToken()
         .then((tokens) => {
-          setAccessToken(tokens.access_token);
+          setAccessToken(tokens.accessToken);
           scheduleRefresh();
         })
         .catch(() => {
@@ -176,7 +177,7 @@ export function IamProvider(props: IamProviderProps) {
     refreshTimerRef.current = setTimeout(async () => {
       try {
         const tokens = await sdk.refreshAccessToken();
-        setAccessToken(tokens.access_token);
+        setAccessToken(tokens.accessToken);
         scheduleRefresh();
       } catch {
         setIsAuthenticated(false);
@@ -239,8 +240,8 @@ export function IamProvider(props: IamProviderProps) {
 
   // Complete authentication after login/callback
   const completeAuth = useCallback(
-    async (tokens: TokenResponse) => {
-      setAccessToken(tokens.access_token);
+    async (tokens: IAMToken) => {
+      setAccessToken(tokens.accessToken);
       setIsAuthenticated(true);
       try {
         const info = await sdk.getUserInfo();
