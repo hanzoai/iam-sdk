@@ -20,6 +20,8 @@
  * @packageDocumentation
  */
 
+import OAuth2Strategy from "passport-oauth2";
+
 import type { IamConfig } from "./types.js";
 
 export interface IamPassportConfig extends IamConfig {
@@ -38,23 +40,18 @@ export interface IamPassportUser {
 /**
  * Create a Passport OAuth2 strategy for Hanzo IAM.
  *
- * Requires `passport-oauth2` as a peer dependency.
  * Returns an OAuth2Strategy instance ready to pass to `passport.use()`.
- *
  * The verify callback fetches userinfo from the IAM server and passes
  * `{ accessToken, refreshToken, userinfo }` as the user object.
+ *
+ * `passport-oauth2` is a runtime dependency of this entry — using a
+ * static import lets downstream bundlers (esbuild, webpack, etc.)
+ * statically resolve and bundle it. Consumers who don't need passport
+ * can import from `@hanzo/iam` directly to avoid pulling it in.
  */
 export function createIamPassportStrategy(
   config: IamPassportConfig,
 ): unknown {
-  // Dynamic import to keep passport-oauth2 as optional peer dep.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Strategy: OAuth2Strategy } = require("passport-oauth2") as {
-    Strategy: new (
-      options: Record<string, unknown>,
-      verify: (...args: unknown[]) => void,
-    ) => unknown;
-  };
 
   const baseUrl = config.serverUrl.replace(/\/+$/, "");
 

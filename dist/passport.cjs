@@ -1,15 +1,13 @@
 'use strict';
 
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
+var OAuth2Strategy = require('passport-oauth2');
+
+function _interopDefault (e) { return e && e.__esModule ? e : { default: e }; }
+
+var OAuth2Strategy__default = /*#__PURE__*/_interopDefault(OAuth2Strategy);
 
 // src/passport.ts
 function createIamPassportStrategy(config) {
-  const { Strategy: OAuth2Strategy } = __require("passport-oauth2");
   const baseUrl = config.serverUrl.replace(/\/+$/, "");
   const verify = async (...args) => {
     const accessToken = args[1];
@@ -28,7 +26,7 @@ function createIamPassportStrategy(config) {
       done(err instanceof Error ? err : new Error(String(err)));
     }
   };
-  return new OAuth2Strategy(
+  return new OAuth2Strategy__default.default(
     {
       authorizationURL: `${baseUrl}/oauth/authorize`,
       tokenURL: `${baseUrl}/oauth/token`,

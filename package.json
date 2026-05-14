@@ -1,7 +1,7 @@
 {
   "name": "@hanzo/iam",
-  "version": "0.9.1",
-  "description": "TypeScript SDK for Hanzo IAM \u2014 OIDC auth, JWT validation, OAuth2 PKCE, user/org/project APIs",
+  "version": "0.9.3",
+  "description": "TypeScript SDK for Hanzo IAM — OIDC auth, JWT validation, OAuth2 PKCE, user/org/project APIs",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -70,7 +70,8 @@
     "test": "node --test --import tsx src/**/*.test.ts"
   },
   "dependencies": {
-    "jose": "^6.1.0"
+    "jose": "^6.1.0",
+    "passport-oauth2": "^1.8.0"
   },
   "peerDependencies": {
     "react": ">=17"
@@ -82,6 +83,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.19.11",
+    "@types/passport-oauth2": "^1.8.0",
     "@types/react": "^19.0.0",
     "tsup": "^8.5.0",
     "typescript": "^5.5.0"

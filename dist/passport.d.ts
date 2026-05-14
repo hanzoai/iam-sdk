@@ -36,11 +36,14 @@ interface IamPassportUser {
 /**
  * Create a Passport OAuth2 strategy for Hanzo IAM.
  *
- * Requires `passport-oauth2` as a peer dependency.
  * Returns an OAuth2Strategy instance ready to pass to `passport.use()`.
- *
  * The verify callback fetches userinfo from the IAM server and passes
  * `{ accessToken, refreshToken, userinfo }` as the user object.
+ *
+ * `passport-oauth2` is a runtime dependency of this entry — using a
+ * static import lets downstream bundlers (esbuild, webpack, etc.)
+ * statically resolve and bundle it. Consumers who don't need passport
+ * can import from `@hanzo/iam` directly to avoid pulling it in.
  */
 declare function createIamPassportStrategy(config: IamPassportConfig): unknown;
 
