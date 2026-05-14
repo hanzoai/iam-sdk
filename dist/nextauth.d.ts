@@ -22,7 +22,7 @@
  *
  * @packageDocumentation
  */
-export interface IamProfile extends Record<string, unknown> {
+interface IamProfile extends Record<string, unknown> {
     sub: string;
     name: string;
     email: string;
@@ -41,7 +41,7 @@ export interface IamProfile extends Record<string, unknown> {
  *
  * Pass `checks: ["state", "pkce"]` in options for PKCE alignment.
  */
-export declare function IamProvider<P extends IamProfile>(options: {
+declare function IamProvider<P extends IamProfile>(options: {
     serverUrl: string;
     clientId: string;
     clientSecret?: string;
@@ -51,8 +51,5 @@ export declare function IamProvider<P extends IamProfile>(options: {
     checks?: ("state" | "pkce" | "nonce" | "none")[];
     [key: string]: unknown;
 }): Record<string, unknown>;
-/** @deprecated Use IamProvider instead */
-export { IamProvider as HanzoIamProvider };
-/** @deprecated Use IamProfile instead */
-export type { IamProfile as HanzoIamProfile };
-//# sourceMappingURL=nextauth.d.ts.map
+
+export { type IamProfile as HanzoIamProfile, IamProvider as HanzoIamProvider, type IamProfile, IamProvider };

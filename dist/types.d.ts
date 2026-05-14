@@ -2,7 +2,7 @@
  * Core types for the Hanzo IAM SDK.
  * Hanzo IAM data models.
  */
-export type IamConfig = {
+type IamConfig = {
     /** IAM server base URL (e.g. "https://iam.hanzo.ai"). */
     serverUrl: string;
     /** OAuth2 client ID. */
@@ -14,7 +14,7 @@ export type IamConfig = {
     /** Application name. */
     appName?: string;
 };
-export type OidcDiscovery = {
+type OidcDiscovery = {
     issuer: string;
     authorization_endpoint: string;
     token_endpoint: string;
@@ -24,7 +24,7 @@ export type OidcDiscovery = {
     response_types_supported?: string[];
     grant_types_supported?: string[];
 };
-export type TokenResponse = {
+type TokenResponse = {
     access_token: string;
     token_type: string;
     expires_in?: number;
@@ -32,7 +32,7 @@ export type TokenResponse = {
     id_token?: string;
     scope?: string;
 };
-export type IamJwtClaims = {
+type IamJwtClaims = {
     /** Subject (user ID in format "org/username"). */
     sub: string;
     /** Issuer URL. */
@@ -58,7 +58,7 @@ export type IamJwtClaims = {
     /** Arbitrary extra claims. */
     [key: string]: unknown;
 };
-export type IamUser = {
+type IamUser = {
     owner: string;
     name: string;
     id?: string;
@@ -72,7 +72,7 @@ export type IamUser = {
     createdTime?: string;
     signupApplication?: string;
 };
-export type IamOrganization = {
+type IamOrganization = {
     owner: string;
     name: string;
     displayName?: string;
@@ -87,7 +87,7 @@ export type IamOrganization = {
     balanceCredit?: number;
     balanceCurrency?: string;
 };
-export type Subscription = {
+type Subscription = {
     owner: string;
     name: string;
     displayName?: string;
@@ -101,7 +101,7 @@ export type Subscription = {
     state?: "Active" | "Inactive" | "Expired" | "Cancelled" | string;
     description?: string;
 };
-export type Plan = {
+type Plan = {
     owner: string;
     name: string;
     displayName?: string;
@@ -114,7 +114,7 @@ export type Plan = {
     isEnabled?: boolean;
     role?: string;
 };
-export type Pricing = {
+type Pricing = {
     owner: string;
     name: string;
     displayName?: string;
@@ -125,7 +125,7 @@ export type Pricing = {
     application?: string;
     trialDuration?: number;
 };
-export type Payment = {
+type Payment = {
     owner: string;
     name: string;
     displayName?: string;
@@ -138,7 +138,7 @@ export type Payment = {
     state?: string;
     message?: string;
 };
-export type Order = {
+type Order = {
     owner: string;
     name: string;
     displayName?: string;
@@ -150,7 +150,7 @@ export type Order = {
     state?: string;
     message?: string;
 };
-export type UsageRecord = {
+type UsageRecord = {
     owner: string;
     name: string;
     user?: string;
@@ -172,21 +172,21 @@ export type UsageRecord = {
     requestId?: string;
     createdTime?: string;
 };
-export type UsageSummary = {
+type UsageSummary = {
     totalRequests: number;
     totalTokens: number;
     totalCost: number;
     promptTokens: number;
     completionTokens: number;
 };
-export type IamSubscription = Subscription;
-export type IamPlan = Plan;
-export type IamPricing = Pricing;
-export type IamPayment = Payment;
-export type IamOrder = Order;
-export type IamUsageRecord = UsageRecord;
-export type IamUsageSummary = UsageSummary;
-export type IamProject = {
+type IamSubscription = Subscription;
+type IamPlan = Plan;
+type IamPricing = Pricing;
+type IamPayment = Payment;
+type IamOrder = Order;
+type IamUsageRecord = UsageRecord;
+type IamUsageSummary = UsageSummary;
+type IamProject = {
     owner: string;
     name: string;
     displayName?: string;
@@ -197,7 +197,7 @@ export type IamProject = {
     isDefault?: boolean;
     createdTime?: string;
 };
-export type IamAuthResult = {
+type IamAuthResult = {
     ok: true;
     userId: string;
     email?: string;
@@ -209,10 +209,11 @@ export type IamAuthResult = {
     ok: false;
     reason: string;
 };
-export type IamApiResponse<T> = {
+type IamApiResponse<T> = {
     status: "ok" | "error";
     msg?: string;
     data?: T;
     data2?: unknown;
 };
-//# sourceMappingURL=types.d.ts.map
+
+export type { IamApiResponse, IamAuthResult, IamConfig, IamJwtClaims, IamOrder, IamOrganization, IamPayment, IamPlan, IamPricing, IamProject, IamSubscription, IamUsageRecord, IamUsageSummary, IamUser, OidcDiscovery, Order, Payment, Plan, Pricing, Subscription, TokenResponse, UsageRecord, UsageSummary };

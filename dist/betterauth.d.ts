@@ -1,3 +1,5 @@
+import { IamConfig } from './types.js';
+
 /**
  * BetterAuth SSO provider configuration for IAM.
  *
@@ -22,8 +24,8 @@
  *
  * @packageDocumentation
  */
-import type { IamConfig } from "./types.js";
-export interface IamSocialProvider {
+
+interface IamSocialProvider {
     id: string;
     name: string;
     type: "oidc";
@@ -55,13 +57,8 @@ export interface IamSocialProvider {
  * Works with BetterAuth's SSO plugin or generic OAuth integration.
  * Uses standard OIDC endpoints.
  */
-export declare function iamProvider(config: IamConfig & {
+declare function iamProvider(config: IamConfig & {
     redirectUri?: string;
 }): IamSocialProvider;
-/** @deprecated Use iamProvider instead */
-export { iamProvider as hanzoIamProvider };
-/** @deprecated Use iamProvider instead */
-export { iamProvider as hanzoIamSocialProvider };
-/** @deprecated Use IamSocialProvider instead */
-export type { IamSocialProvider as HanzoIamSocialProvider };
-//# sourceMappingURL=betterauth.d.ts.map
+
+export { type IamSocialProvider as HanzoIamSocialProvider, type IamSocialProvider, iamProvider as hanzoIamProvider, iamProvider as hanzoIamSocialProvider, iamProvider };

@@ -1,3 +1,5 @@
+import { IamConfig, TokenResponse } from './types.js';
+
 /**
  * Browser-side OAuth2 flows for Hanzo IAM.
  *
@@ -6,8 +8,8 @@
  *
  * Adapted and modernized for Hanzo IAM.
  */
-import type { IamConfig, TokenResponse } from "./types.js";
-export type IAMConfig = IamConfig & {
+
+type IAMConfig = IamConfig & {
     /** OAuth2 redirect URI (e.g. "https://app.hanzo.bot/auth/callback"). */
     redirectUri: string;
     /** OAuth2 scopes (default: "openid profile email"). */
@@ -23,7 +25,7 @@ export type IAMConfig = IamConfig & {
      */
     proxyBaseUrl?: string;
 };
-export declare class IAM {
+declare class IAM {
     private readonly config;
     private readonly storage;
     private discoveryCache;
@@ -187,7 +189,7 @@ export declare class IAM {
  * response (snake_case) to camelCase. Apps should consume this rather than
  * the raw `Record<string, unknown>` from `getUserInfo()`.
  */
-export type IAMUser = {
+type IAMUser = {
     sub: string;
     email?: string;
     name?: string;
@@ -201,7 +203,7 @@ export type IAMUser = {
 /**
  * Canonical token shape (camelCase, no `_` keys) for app code.
  */
-export type IAMToken = {
+type IAMToken = {
     accessToken: string;
     refreshToken?: string;
     idToken?: string;
@@ -210,5 +212,6 @@ export type IAMToken = {
     scope?: string;
 };
 /** Convert the raw OAuth2 token response into the canonical `IAMToken`. */
-export declare function toIAMToken(t: TokenResponse): IAMToken;
-//# sourceMappingURL=browser.d.ts.map
+declare function toIAMToken(t: TokenResponse): IAMToken;
+
+export { IAM, type IAMConfig, type IAMToken, type IAMUser, toIAMToken };

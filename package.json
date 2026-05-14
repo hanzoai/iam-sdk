@@ -1,48 +1,58 @@
 {
   "name": "@hanzo/iam",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "TypeScript SDK for Hanzo IAM \u2014 OIDC auth, JWT validation, OAuth2 PKCE, user/org/project APIs",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
       "default": "./dist/index.js"
     },
     "./auth": {
       "types": "./dist/auth.d.ts",
       "import": "./dist/auth.js",
+      "require": "./dist/auth.cjs",
       "default": "./dist/auth.js"
     },
     "./browser": {
       "types": "./dist/browser.d.ts",
-      "import": "./dist/browser.js"
+      "import": "./dist/browser.js",
+      "require": "./dist/browser.cjs"
     },
     "./billing": {
       "types": "./dist/billing.d.ts",
-      "import": "./dist/billing.js"
+      "import": "./dist/billing.js",
+      "require": "./dist/billing.cjs"
     },
     "./types": {
       "types": "./dist/types.d.ts",
-      "import": "./dist/types.js"
+      "import": "./dist/types.js",
+      "require": "./dist/types.cjs"
     },
     "./react": {
       "types": "./dist/react.d.ts",
-      "import": "./dist/react.js"
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
     },
     "./nextauth": {
       "types": "./dist/nextauth.d.ts",
-      "import": "./dist/nextauth.js"
+      "import": "./dist/nextauth.js",
+      "require": "./dist/nextauth.cjs"
     },
     "./passport": {
       "types": "./dist/passport.d.ts",
-      "import": "./dist/passport.js"
+      "import": "./dist/passport.js",
+      "require": "./dist/passport.cjs"
     },
     "./betterauth": {
       "types": "./dist/betterauth.d.ts",
-      "import": "./dist/betterauth.js"
+      "import": "./dist/betterauth.js",
+      "require": "./dist/betterauth.cjs"
     }
   },
   "files": [
@@ -52,11 +62,11 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "clean": "rm -rf dist",
-    "prepare": "pnpm clean && pnpm build",
-    "prepublishOnly": "pnpm clean && pnpm build",
+    "prepare": "node -e \"if (!require('fs').existsSync('dist')) { require('child_process').execSync('tsup', { stdio: 'inherit' }) }\"",
+    "prepublishOnly": "rm -rf dist && tsup",
     "test": "node --test --import tsx src/**/*.test.ts"
   },
   "dependencies": {
@@ -73,6 +83,7 @@
   "devDependencies": {
     "@types/node": "^22.19.11",
     "@types/react": "^19.0.0",
+    "tsup": "^8.5.0",
     "typescript": "^5.5.0"
   },
   "keywords": [

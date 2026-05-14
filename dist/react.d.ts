@@ -1,42 +1,9 @@
-/**
- * React bindings for @hanzo/iam.
- *
- * Provides a context provider, auth hooks, and org/project switching
- * that can be dropped into any React application.
- *
- * @example
- * ```tsx
- * import { IamProvider, useIam, useOrganizations } from '@hanzo/iam/react'
- *
- * function App() {
- *   return (
- *     <IamProvider config={{
- *       serverUrl: 'https://iam.hanzo.ai',
- *       clientId: 'my-app',
- *       redirectUri: `${window.location.origin}/auth/callback`,
- *     }}>
- *       <MyApp />
- *     </IamProvider>
- *   )
- * }
- *
- * function MyApp() {
- *   const { user, isAuthenticated, login, logout } = useIam()
- *   const { organizations, currentOrg, switchOrg } = useOrganizations()
- *
- *   if (!isAuthenticated) return <button onClick={() => login()}>Log in</button>
- *   return <div>Welcome, {user?.displayName}</div>
- * }
- * ```
- *
- * @packageDocumentation
- */
-import type { ReactNode } from "react";
-import { IAM } from "./browser.js";
-import type { IAMConfig } from "./browser.js";
-import type { IamUser, IamOrganization, IamProject } from "./types.js";
-import type { IAMToken } from "./browser.js";
-export interface IamProviderProps {
+import * as react from 'react';
+import { ReactNode } from 'react';
+import { IAM, IAMConfig, IAMToken } from './browser.js';
+import { IamUser, IamOrganization, IamProject } from './types.js';
+
+interface IamProviderProps {
     /** Browser IAM SDK configuration. */
     config: IAMConfig;
     /** Auto-initialize on mount (check stored tokens). Default: true. */
@@ -45,7 +12,7 @@ export interface IamProviderProps {
     onAuthChange?: (authenticated: boolean) => void;
     children: ReactNode;
 }
-export interface IamContextValue {
+interface IamContextValue {
     /** The underlying IAM instance for advanced use. */
     sdk: IAM;
     /** The IAM configuration. */
@@ -74,7 +41,7 @@ export interface IamContextValue {
     /** Last auth error, if any. */
     error: Error | null;
 }
-export interface OrgState {
+interface OrgState {
     /** All organizations the user belongs to. */
     organizations: IamOrganization[];
     /** Currently selected organization. */
@@ -94,19 +61,19 @@ export interface OrgState {
     /** Whether organizations are loading. */
     isLoading: boolean;
 }
-declare const IamContext: import("react").Context<IamContextValue | null>;
+declare const IamContext: react.Context<IamContextValue | null>;
 /**
  * Root provider for Hanzo IAM in React applications.
  *
  * Wrap your app (or a subtree) with this provider to enable IAM auth.
  * Manages the IAM instance, token lifecycle, and auth state.
  */
-export declare function IamProvider(props: IamProviderProps): import("react").FunctionComponentElement<import("react").ProviderProps<IamContextValue | null>>;
+declare function IamProvider(props: IamProviderProps): react.FunctionComponentElement<react.ProviderProps<IamContextValue | null>>;
 /**
  * Access Hanzo IAM auth state and methods.
  * Must be used within an `<IamProvider>`.
  */
-export declare function useIam(): IamContextValue;
+declare function useIam(): IamContextValue;
 /**
  * Manage organization and project switching.
  *
@@ -114,18 +81,18 @@ export declare function useIam(): IamContextValue;
  * `switchOrg` / `switchProject` to change the active tenant.
  * Selection is persisted to localStorage.
  */
-export declare function useOrganizations(): OrgState;
+declare function useOrganizations(): OrgState;
 /**
  * Hook that provides a valid access token with auto-refresh capability.
  * Returns null while loading or if not authenticated.
  */
-export declare function useIamToken(): {
+declare function useIamToken(): {
     token: string | null;
     isValid: boolean;
     refresh: () => Promise<string | null>;
 };
-export { IamContext };
-export interface OrgProjectSwitcherProps {
+
+interface OrgProjectSwitcherProps {
     organizations: Array<{
         name: string;
         displayName?: string;
@@ -159,7 +126,8 @@ export interface OrgProjectSwitcherProps {
  * }
  * ```
  */
-export declare function OrgProjectSwitcher({ organizations, currentOrgId, switchOrg, projects, currentProjectId, switchProject, onTenantChange, environment, className, alwaysShow, }: OrgProjectSwitcherProps): import("react").DetailedReactHTMLElement<{
+declare function OrgProjectSwitcher({ organizations, currentOrgId, switchOrg, projects, currentProjectId, switchProject, onTenantChange, environment, className, alwaysShow, }: OrgProjectSwitcherProps): react.DetailedReactHTMLElement<{
     className: string;
 }, HTMLElement> | null;
-//# sourceMappingURL=react.d.ts.map
+
+export { IamContext, type IamContextValue, IamProvider, type IamProviderProps, OrgProjectSwitcher, type OrgProjectSwitcherProps, type OrgState, useIam, useIamToken, useOrganizations };
