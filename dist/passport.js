@@ -1,13 +1,7 @@
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined") return require.apply(this, arguments);
-  throw Error('Dynamic require of "' + x + '" is not supported');
-});
+import OAuth2Strategy from 'passport-oauth2';
 
 // src/passport.ts
 function createIamPassportStrategy(config) {
-  const { Strategy: OAuth2Strategy } = __require("passport-oauth2");
   const baseUrl = config.serverUrl.replace(/\/+$/, "");
   const verify = async (...args) => {
     const accessToken = args[1];
