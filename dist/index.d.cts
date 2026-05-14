@@ -1,8 +1,13 @@
+import { IamConfig, OidcDiscovery, TokenResponse, IamUser, IamOrganization, IamProject } from './types.cjs';
+export { IamApiResponse, IamAuthResult, IamJwtClaims, IamOrder, IamPayment, IamPlan, IamPricing, IamSubscription, IamUsageRecord, IamUsageSummary, Order, Payment, Plan, Pricing, Subscription, UsageRecord, UsageSummary } from './types.cjs';
+export { clearJwksCache, validateToken } from './auth.cjs';
+export { IAM, IAMConfig, IAMToken, IAMUser, toIAMToken } from './browser.cjs';
+
 /**
  * Core HTTP client for Hanzo IAM API.
  */
-import type { IamConfig, IamUser, IamOrganization, IamProject, OidcDiscovery, TokenResponse } from "./types.js";
-export declare class IamClient {
+
+declare class IamClient {
     private readonly baseUrl;
     private readonly clientId;
     private readonly clientSecret;
@@ -63,8 +68,22 @@ export declare class IamClient {
         params?: Record<string, string>;
     }): Promise<T>;
 }
-export declare class IamApiError extends Error {
+declare class IamApiError extends Error {
     readonly status: number;
     constructor(status: number, message: string);
 }
-//# sourceMappingURL=client.d.ts.map
+
+/**
+ * PKCE (Proof Key for Code Exchange) utilities for browser-side OAuth2 flows.
+ *
+ * PKCE utilities for OAuth2 flows, using native Web Crypto API.
+ */
+/** Generate a PKCE code verifier + challenge pair. */
+declare function generatePKCEChallenge(): Promise<{
+    codeVerifier: string;
+    codeChallenge: string;
+}>;
+/** Generate a random state parameter for CSRF protection. */
+declare function generateState(): string;
+
+export { IamApiError, IamClient, IamConfig, IamOrganization, IamProject, IamUser, OidcDiscovery, TokenResponse, generatePKCEChallenge, generateState };

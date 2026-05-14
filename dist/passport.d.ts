@@ -1,3 +1,5 @@
+import { IamConfig } from './types.js';
+
 /**
  * Passport.js OAuth2 strategy factory for Hanzo IAM.
  *
@@ -19,14 +21,14 @@
  *
  * @packageDocumentation
  */
-import type { IamConfig } from "./types.js";
-export interface IamPassportConfig extends IamConfig {
+
+interface IamPassportConfig extends IamConfig {
     /** Full callback URL for OAuth2 redirect. */
     callbackUrl: string;
     /** OAuth2 scopes. Default: "openid profile email". */
     scope?: string;
 }
-export interface IamPassportUser {
+interface IamPassportUser {
     accessToken: string;
     refreshToken?: string;
     userinfo: Record<string, unknown>;
@@ -40,5 +42,6 @@ export interface IamPassportUser {
  * The verify callback fetches userinfo from the IAM server and passes
  * `{ accessToken, refreshToken, userinfo }` as the user object.
  */
-export declare function createIamPassportStrategy(config: IamPassportConfig): unknown;
-//# sourceMappingURL=passport.d.ts.map
+declare function createIamPassportStrategy(config: IamPassportConfig): unknown;
+
+export { type IamPassportConfig, type IamPassportUser, createIamPassportStrategy };
