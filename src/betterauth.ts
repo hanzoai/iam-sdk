@@ -12,7 +12,7 @@
  * export const auth = betterAuth({
  *   socialProviders: [
  *     iamProvider({
- *       serverUrl: process.env.IAM_SERVER_URL!,
+ *       serverUrl: process.env.IAM_ENDPOINT!,
  *       clientId: process.env.IAM_CLIENT_ID!,
  *       clientSecret: process.env.IAM_CLIENT_SECRET!,
  *     }),
