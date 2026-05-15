@@ -75,10 +75,10 @@ declare function IamProvider(props: IamProviderProps): react.FunctionComponentEl
  */
 declare function useIam(): IamContextValue;
 /**
- * Manage organization and project switching.
+ * Manage organization switching, derived from the JWT `sub`/`owner`
+ * claims. Project state is preserved as an empty list — apps that
+ * need full org/project listings must query their own admin API.
  *
- * Fetches the user's organizations from IAM and provides
- * `switchOrg` / `switchProject` to change the active tenant.
  * Selection is persisted to localStorage.
  */
 declare function useOrganizations(): OrgState;

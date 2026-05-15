@@ -1,10 +1,24 @@
-import { IamConfig, OidcDiscovery, TokenResponse, IamUser, IamOrganization, IamProject } from './types.js';
-export { IamApiResponse, IamAuthResult, IamJwtClaims, IamOrder, IamPayment, IamPlan, IamPricing, IamSubscription, IamUsageRecord, IamUsageSummary, Order, Payment, Plan, Pricing, Subscription, UsageRecord, UsageSummary } from './types.js';
+import { IamConfig, OidcDiscovery, TokenResponse, IamUser } from './types.js';
+export { IamApiResponse, IamAuthResult, IamJwtClaims, IamOrder, IamOrganization, IamPayment, IamPlan, IamPricing, IamProject, IamSubscription, IamUsageRecord, IamUsageSummary, Order, Payment, Plan, Pricing, Subscription, UsageRecord, UsageSummary } from './types.js';
 export { clearJwksCache, validateToken } from './auth.js';
 export { IAM, IAMConfig, IAMToken, IAMUser, toIAMToken } from './browser.js';
 
 /**
- * Core HTTP client for Hanzo IAM API.
+ * Core HTTP client for Hanzo IAM.
+ *
+ * Speaks pure OIDC / OAuth2 only. No Casdoor `/api/get-*` admin REST.
+ * Identity, users, organizations are read from the validated JWT or
+ * the OIDC userinfo endpoint — never from `/api/get-organizations`
+ * style admin queries. Surface the IamClient exposes:
+ *
+ *   - getDiscovery       — /.well-known/openid-configuration
+ *   - getJwksUri         — convenience over discovery
+ *   - getAuthorizationUrl— builds the authorize redirect (PKCE)
+ *   - exchangeCode       — code → tokens (RFC 6749 §4.1)
+ *   - passwordGrant      — ROPC for CLIs / e2e tests (RFC 6749 §4.3)
+ *   - refreshToken       — refresh grant (RFC 6749 §6)
+ *   - getUserInfo        — /oauth/userinfo (RFC OIDC core §5.3)
+ *   - apiRequest         — escape hatch for app-specific endpoints
  */
 
 declare class IamClient {
@@ -27,46 +41,42 @@ declare class IamClient {
         codeChallenge?: string;
         codeChallengeMethod?: string;
     }): Promise<string>;
-    /** Exchange authorization code for tokens. */
+    /** Exchange authorization code for tokens (RFC 6749 §4.1). */
     exchangeCode(params: {
         code: string;
         redirectUri: string;
         codeVerifier?: string;
     }): Promise<TokenResponse>;
     /**
-     * Resource Owner Password Credentials grant.
-     * Used for service-to-service auth, CLI login, and e2e tests.
+     * Resource Owner Password Credentials grant (RFC 6749 §4.3).
+     * For service-to-service auth, CLI login, and e2e tests only.
+     * Browsers should use the redirect flow.
      */
     passwordGrant(params: {
         username: string;
         password: string;
         scope?: string;
     }): Promise<TokenResponse>;
-    /** Refresh an access token. */
+    /** Refresh an access token (RFC 6749 §6). */
     refreshToken(refreshToken: string): Promise<TokenResponse>;
-    /** Get user info from access token (OIDC userinfo endpoint). */
+    /** Fetch user claims from the OIDC userinfo endpoint (OIDC core §5.3). */
     getUserInfo(accessToken: string): Promise<IamUser>;
-    /** Get a user by ID ("org/username" format). */
-    getUser(userId: string, token?: string): Promise<IamUser | null>;
-    /** List organizations (for the configured owner). */
-    getOrganizations(token?: string): Promise<IamOrganization[]>;
-    /** Get a specific organization. */
-    getOrganization(id: string, token?: string): Promise<IamOrganization | null>;
-    /** Get organizations a user belongs to. */
-    getUserOrganizations(userId: string, token?: string): Promise<IamOrganization[]>;
-    /** List projects (for the configured owner). */
-    getProjects(token?: string): Promise<IamProject[]>;
-    /** Get a specific project by ID ("owner/name" format). */
-    getProject(id: string, token?: string): Promise<IamProject | null>;
-    /** Get all projects for an organization. */
-    getOrganizationProjects(organization: string, token?: string): Promise<IamProject[]>;
-    /** Make an arbitrary authenticated request to the IAM API. */
+    /**
+     * Make an arbitrary authenticated request to the IAM server.
+     * Intentionally untyped — callers that need org/project listings
+     * should query their own admin API, not the IAM SDK.
+     */
     apiRequest<T = unknown>(path: string, opts?: {
         method?: string;
         body?: unknown;
         token?: string;
         params?: Record<string, string>;
     }): Promise<T>;
+    /** Bound owner/app context if the consumer passed them on construction. */
+    get context(): {
+        orgName?: string;
+        appName?: string;
+    };
 }
 declare class IamApiError extends Error {
     readonly status: number;
@@ -86,4 +96,4 @@ declare function generatePKCEChallenge(): Promise<{
 /** Generate a random state parameter for CSRF protection. */
 declare function generateState(): string;
 
-export { IamApiError, IamClient, IamConfig, IamOrganization, IamProject, IamUser, OidcDiscovery, TokenResponse, generatePKCEChallenge, generateState };
+export { IamApiError, IamClient, IamConfig, IamUser, OidcDiscovery, TokenResponse, generatePKCEChallenge, generateState };

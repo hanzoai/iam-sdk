@@ -45,7 +45,6 @@ import {
 import type { ReactNode } from "react";
 import { IAM } from "./browser.js";
 import type { IAMConfig } from "./browser.js";
-import { IamClient } from "./client.js";
 import type { IamUser, IamOrganization, IamProject } from "./types.js";
 import type { IAMToken } from "./browser.js";
 
@@ -363,17 +362,15 @@ export function useIam(): IamContextValue {
 // ---------------------------------------------------------------------------
 
 /**
- * Manage organization and project switching.
+ * Manage organization switching, derived from the JWT `sub`/`owner`
+ * claims. Project state is preserved as an empty list — apps that
+ * need full org/project listings must query their own admin API.
  *
- * Fetches the user's organizations from IAM and provides
- * `switchOrg` / `switchProject` to change the active tenant.
  * Selection is persisted to localStorage.
  */
 export function useOrganizations(): OrgState {
-  const { config, isAuthenticated, accessToken } = useIam();
+  const { isAuthenticated, accessToken } = useIam();
   const [organizations, setOrganizations] = useState<IamOrganization[]>([]);
-  const [projects, setProjects] = useState<IamProject[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
 
   const [currentOrgId, setCurrentOrgId] = useState<string | null>(() => {
     try {
@@ -393,139 +390,53 @@ export function useOrganizations(): OrgState {
     },
   );
 
-  // Fetch organizations when authenticated
+  // Derive primary org from the JWT (sub="org/username" or owner claim).
+  // No API call — IAM SDK does not query the Casdoor /api/get-organizations
+  // admin surface. Apps that need a multi-org list must fetch it from
+  // their own admin/control-plane API.
   useEffect(() => {
     if (!isAuthenticated || !accessToken) {
       setOrganizations([]);
-      setProjects([]);
       return;
     }
-
-    let cancelled = false;
-
-    const fetchOrgs = async () => {
-      setIsLoading(true);
-
-      // 1. Parse JWT sub claim for primary org (immediate, no API call)
-      try {
-        const payload = JSON.parse(atob(accessToken.split(".")[1]));
-        const sub = payload.sub as string;
-        if (sub?.includes("/")) {
-          const primaryOrg = sub.split("/")[0];
-          if (!cancelled) {
-            const syntheticOrg: IamOrganization = {
-              owner: "admin",
-              name: primaryOrg,
-              displayName: primaryOrg,
-            };
-            setOrganizations([syntheticOrg]);
-            if (!currentOrgId) {
-              setCurrentOrgId(primaryOrg);
-              try {
-                localStorage.setItem(STORAGE_ORG_KEY, primaryOrg);
-              } catch {
-                /* ok */
-              }
-            }
+    try {
+      const payload = JSON.parse(atob(accessToken.split(".")[1]));
+      const sub = (payload.sub as string) || "";
+      const owner = (payload.owner as string) || "";
+      const primaryOrg = owner || (sub.includes("/") ? sub.split("/")[0] : "");
+      if (primaryOrg) {
+        const syntheticOrg: IamOrganization = {
+          owner: "admin",
+          name: primaryOrg,
+          displayName: primaryOrg,
+        };
+        setOrganizations([syntheticOrg]);
+        if (!currentOrgId) {
+          setCurrentOrgId(primaryOrg);
+          try {
+            localStorage.setItem(STORAGE_ORG_KEY, primaryOrg);
+          } catch {
+            /* ok */
           }
         }
-      } catch {
-        // Invalid token format — skip JWT parsing
       }
-
-      // 2. Try to fetch full org list from API (may fail for non-admin users)
-      try {
-        const client = new IamClient({
-          serverUrl: config.serverUrl,
-          clientId: config.clientId,
-        });
-        const orgs = await client.getOrganizations(accessToken);
-        if (!cancelled && orgs.length > 0) {
-          setOrganizations(orgs);
-          if (!currentOrgId && orgs.length > 0) {
-            const firstOrg = orgs[0].name;
-            setCurrentOrgId(firstOrg);
-            try {
-              localStorage.setItem(STORAGE_ORG_KEY, firstOrg);
-            } catch {
-              /* ok */
-            }
-          }
-        }
-      } catch {
-        // API call failed — keep JWT-derived org
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    };
-
-    fetchOrgs();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, accessToken, config.serverUrl, config.clientId]);
-
-  // Fetch projects when currentOrgId changes
-  useEffect(() => {
-    if (!isAuthenticated || !accessToken || !currentOrgId) {
-      setProjects([]);
-      return;
+    } catch {
+      // Invalid token format — leave organizations empty
     }
-
-    let cancelled = false;
-
-    const fetchProjects = async () => {
-      try {
-        const client = new IamClient({
-          serverUrl: config.serverUrl,
-          clientId: config.clientId,
-        });
-        const orgProjects = await client.getOrganizationProjects(
-          currentOrgId,
-          accessToken,
-        );
-        if (!cancelled) {
-          setProjects(orgProjects);
-          // Auto-select default project if none selected
-          if (!currentProjectId && orgProjects.length > 0) {
-            const defaultProject =
-              orgProjects.find((p) => p.isDefault) ?? orgProjects[0];
-            setCurrentProjectId(defaultProject.name);
-            try {
-              localStorage.setItem(STORAGE_PROJECT_KEY, defaultProject.name);
-            } catch {
-              /* ok */
-            }
-          }
-        }
-      } catch {
-        // Projects API may not be available yet — that's ok
-        if (!cancelled) setProjects([]);
-      }
-    };
-
-    fetchProjects();
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, accessToken, currentOrgId, config.serverUrl, config.clientId]);
+  }, [isAuthenticated, accessToken]);
+
+  const projects: IamProject[] = [];
+  const currentProject: IamProject | null = null;
 
   const currentOrg = useMemo(
     () => organizations.find((o) => o.name === currentOrgId) ?? null,
     [organizations, currentOrgId],
   );
 
-  const currentProject = useMemo(
-    () => projects.find((p) => p.name === currentProjectId) ?? null,
-    [projects, currentProjectId],
-  );
-
   const switchOrg = useCallback((orgId: string) => {
     setCurrentOrgId(orgId);
     setCurrentProjectId(null);
-    setProjects([]);
     try {
       localStorage.setItem(STORAGE_ORG_KEY, orgId);
       localStorage.removeItem(STORAGE_PROJECT_KEY);
@@ -556,7 +467,7 @@ export function useOrganizations(): OrgState {
     currentProject,
     currentProjectId,
     switchProject,
-    isLoading,
+    isLoading: false,
   };
 }
 
