@@ -98,7 +98,7 @@ var IamClient = class {
     }
     return url.toString();
   }
-  /** Exchange authorization code for tokens. */
+  /** Exchange authorization code for tokens (RFC 6749 §4.1). */
   async exchangeCode(params) {
     const discovery = await this.getDiscovery();
     const body = new URLSearchParams({
@@ -132,8 +132,9 @@ var IamClient = class {
     }
   }
   /**
-   * Resource Owner Password Credentials grant.
-   * Used for service-to-service auth, CLI login, and e2e tests.
+   * Resource Owner Password Credentials grant (RFC 6749 §4.3).
+   * For service-to-service auth, CLI login, and e2e tests only.
+   * Browsers should use the redirect flow.
    */
   async passwordGrant(params) {
     const discovery = await this.getDiscovery();
@@ -165,7 +166,7 @@ var IamClient = class {
       clearTimeout(timer);
     }
   }
-  /** Refresh an access token. */
+  /** Refresh an access token (RFC 6749 §6). */
   async refreshToken(refreshToken) {
     const discovery = await this.getDiscovery();
     const body = new URLSearchParams({
@@ -195,9 +196,9 @@ var IamClient = class {
     }
   }
   // -----------------------------------------------------------------------
-  // User
+  // User (OIDC userinfo only — no Casdoor /api/get-user)
   // -----------------------------------------------------------------------
-  /** Get user info from access token (OIDC userinfo endpoint). */
+  /** Fetch user claims from the OIDC userinfo endpoint (OIDC core §5.3). */
   async getUserInfo(accessToken) {
     const discovery = await this.getDiscovery();
     const controller = new AbortController();
@@ -215,78 +216,20 @@ var IamClient = class {
       clearTimeout(timer);
     }
   }
-  /** Get a user by ID ("org/username" format). */
-  async getUser(userId, token) {
-    const resp = await this.request("/api/get-user", {
-      params: { id: userId },
-      token
-    });
-    return resp.data ?? null;
-  }
   // -----------------------------------------------------------------------
-  // Organization
+  // Escape hatch — for app-specific endpoints under the same IAM origin
   // -----------------------------------------------------------------------
-  /** List organizations (for the configured owner). */
-  async getOrganizations(token) {
-    const owner = this.orgName ?? "admin";
-    const resp = await this.request(
-      "/api/get-organizations",
-      { params: { owner }, token }
-    );
-    return resp.data ?? [];
-  }
-  /** Get a specific organization. */
-  async getOrganization(id, token) {
-    const resp = await this.request(
-      "/api/get-organization",
-      { params: { id }, token }
-    );
-    return resp.data ?? null;
-  }
-  /** Get organizations a user belongs to. */
-  async getUserOrganizations(userId, token) {
-    const user = await this.getUser(userId, token);
-    if (!user) return [];
-    const org = await this.getOrganization(
-      `admin/${user.owner}`,
-      token
-    );
-    return org ? [org] : [];
-  }
-  // -----------------------------------------------------------------------
-  // Project
-  // -----------------------------------------------------------------------
-  /** List projects (for the configured owner). */
-  async getProjects(token) {
-    const owner = this.orgName ?? "admin";
-    const resp = await this.request(
-      "/api/get-projects",
-      { params: { owner }, token }
-    );
-    return resp.data ?? [];
-  }
-  /** Get a specific project by ID ("owner/name" format). */
-  async getProject(id, token) {
-    const resp = await this.request(
-      "/api/get-project",
-      { params: { id }, token }
-    );
-    return resp.data ?? null;
-  }
-  /** Get all projects for an organization. */
-  async getOrganizationProjects(organization, token) {
-    const resp = await this.request(
-      "/api/get-organization-projects",
-      { params: { organization }, token }
-    );
-    return resp.data ?? [];
-  }
-  // -----------------------------------------------------------------------
-  // Raw request (for extending)
-  // -----------------------------------------------------------------------
-  /** Make an arbitrary authenticated request to the IAM API. */
+  /**
+   * Make an arbitrary authenticated request to the IAM server.
+   * Intentionally untyped — callers that need org/project listings
+   * should query their own admin API, not the IAM SDK.
+   */
   async apiRequest(path, opts) {
     return this.request(path, opts);
+  }
+  /** Bound owner/app context if the consumer passed them on construction. */
+  get context() {
+    return { orgName: this.orgName, appName: this.appName };
   }
 };
 var IamApiError = class extends Error {
@@ -465,22 +408,33 @@ var IAM = class {
       token_endpoint: `${baseUrl}/oauth/token`,
       userinfo_endpoint: `${baseUrl}/oauth/userinfo`,
       jwks_uri: `${baseUrl}/.well-known/jwks`,
-      response_types_supported: ["code", "token", "id_token"],
-      grant_types_supported: ["authorization_code", "implicit", "refresh_token"],
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
       scopes_supported: ["openid", "email", "profile"]
     };
     return this.discoveryCache;
   }
   // -----------------------------------------------------------------------
-  // Login redirect (PKCE)
+  // Token endpoint URL (proxy-aware)
   // -----------------------------------------------------------------------
-  /**
-   * Start the OAuth2 PKCE login flow by redirecting to the IAM authorize endpoint.
-   *
-   * Generates PKCE challenge and state, stores them in session storage,
-   * then redirects the browser.
-   */
-  async signinRedirect(params) {
+  async tokenEndpoint() {
+    if (this.config.proxyBaseUrl) {
+      return `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/oauth/token`;
+    }
+    const discovery = await this.getDiscovery();
+    return discovery.token_endpoint;
+  }
+  async userinfoEndpoint() {
+    if (this.config.proxyBaseUrl) {
+      return `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/oauth/userinfo`;
+    }
+    const discovery = await this.getDiscovery();
+    return discovery.userinfo_endpoint;
+  }
+  // -----------------------------------------------------------------------
+  // Authorize URL builder
+  // -----------------------------------------------------------------------
+  async buildAuthorizeUrl(extra) {
     const discovery = await this.getDiscovery();
     const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
     const state = generateState();
@@ -494,22 +448,43 @@ var IAM = class {
     url.searchParams.set("state", state);
     url.searchParams.set("code_challenge", codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
-    if (params?.additionalParams) {
-      for (const [k, v] of Object.entries(params.additionalParams)) {
+    if (extra?.prompt) url.searchParams.set("prompt", extra.prompt);
+    if (extra?.additionalParams) {
+      for (const [k, v] of Object.entries(extra.additionalParams)) {
         url.searchParams.set(k, v);
       }
     }
+    return { url, codeVerifier, state };
+  }
+  // -----------------------------------------------------------------------
+  // Login redirect (PKCE)
+  // -----------------------------------------------------------------------
+  /**
+   * Start the OAuth2 PKCE login flow by redirecting to /oauth/authorize.
+   * Generates PKCE challenge + state, stores them in session storage,
+   * then sets `window.location.href`.
+   */
+  async signinRedirect(params) {
+    const { url } = await this.buildAuthorizeUrl(params);
     window.location.href = url.toString();
+  }
+  /**
+   * Build the authorize URL without redirecting — useful for `<a href>`
+   * (e.g. social login buttons with `provider` in additionalParams).
+   */
+  async getSigninUrl(params) {
+    const { url } = await this.buildAuthorizeUrl(params);
+    return url.toString();
   }
   // -----------------------------------------------------------------------
   // Callback handling
   // -----------------------------------------------------------------------
   /**
-   * Handle the OAuth2 callback after redirect. Exchanges the authorization code
-   * for tokens using PKCE.
+   * Handle the OAuth2 callback after the IAM redirect. Validates state,
+   * exchanges the authorization code for tokens with PKCE, and stores
+   * the result.
    *
-   * Call this on your callback page (e.g. /auth/callback).
-   * Returns the token response, or throws if the state doesn't match.
+   * Call this on your callback route (e.g. /auth/callback).
    */
   async handleCallback(callbackUrl) {
     const url = new URL(callbackUrl ?? window.location.href);
@@ -523,19 +498,6 @@ var IAM = class {
     if (savedState && state !== savedState) {
       throw new Error("OAuth state mismatch \u2014 possible CSRF attack");
     }
-    const accessToken = url.searchParams.get("access_token");
-    if (accessToken) {
-      this.storage.removeItem(KEY_STATE);
-      this.storage.removeItem(KEY_CODE_VERIFIER);
-      const tokens2 = {
-        access_token: accessToken,
-        token_type: "Bearer",
-        refresh_token: url.searchParams.get("refresh_token") ?? void 0,
-        expires_in: 7200
-      };
-      this.storeTokens(tokens2);
-      return toIAMToken(tokens2);
-    }
     const code = url.searchParams.get("code");
     if (!code) {
       throw new Error("Missing authorization code in callback URL");
@@ -546,7 +508,6 @@ var IAM = class {
     }
     this.storage.removeItem(KEY_STATE);
     this.storage.removeItem(KEY_CODE_VERIFIER);
-    const discovery = await this.getDiscovery();
     const body = new URLSearchParams({
       grant_type: "authorization_code",
       client_id: this.config.clientId,
@@ -554,7 +515,7 @@ var IAM = class {
       redirect_uri: this.config.redirectUri,
       code_verifier: codeVerifier
     });
-    const tokenUrl = this.config.proxyBaseUrl ? `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/auth/token` : discovery.token_endpoint;
+    const tokenUrl = await this.tokenEndpoint();
     const res = await fetch(tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -577,13 +538,12 @@ var IAM = class {
     if (!refreshToken) {
       throw new Error("No refresh token available");
     }
-    const discovery = await this.getDiscovery();
     const body = new URLSearchParams({
       grant_type: "refresh_token",
       client_id: this.config.clientId,
       refresh_token: refreshToken
     });
-    const tokenUrl = this.config.proxyBaseUrl ? `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/auth/token` : discovery.token_endpoint;
+    const tokenUrl = await this.tokenEndpoint();
     const res = await fetch(tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -605,24 +565,9 @@ var IAM = class {
    * completes the OAuth flow and returns tokens.
    */
   async signinPopup(params) {
-    const discovery = await this.getDiscovery();
-    const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
-    const state = generateState();
-    this.storage.setItem(KEY_STATE, state);
-    this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
-    const url = new URL(discovery.authorization_endpoint);
-    url.searchParams.set("client_id", this.config.clientId);
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set("redirect_uri", this.config.redirectUri);
-    url.searchParams.set("scope", this.config.scope ?? "openid profile email");
-    url.searchParams.set("state", state);
-    url.searchParams.set("code_challenge", codeChallenge);
-    url.searchParams.set("code_challenge_method", "S256");
-    if (params?.additionalParams) {
-      for (const [k, v] of Object.entries(params.additionalParams)) {
-        url.searchParams.set(k, v);
-      }
-    }
+    const { url } = await this.buildAuthorizeUrl({
+      additionalParams: params?.additionalParams
+    });
     const width = params?.width ?? 600;
     const height = params?.height ?? 700;
     const left = window.screenX + (window.outerWidth - width) / 2;
@@ -659,25 +604,11 @@ var IAM = class {
   // Silent signin (iframe)
   // -----------------------------------------------------------------------
   /**
-   * Attempt silent authentication via a hidden iframe.
-   * Useful for checking if the user has an active IAM session.
+   * Attempt silent authentication via a hidden iframe (`prompt=none`).
    * Returns null if silent auth fails (user needs to log in interactively).
    */
   async signinSilent(timeoutMs = 5e3) {
-    const discovery = await this.getDiscovery();
-    const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
-    const state = generateState();
-    this.storage.setItem(KEY_STATE, state);
-    this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
-    const url = new URL(discovery.authorization_endpoint);
-    url.searchParams.set("client_id", this.config.clientId);
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set("redirect_uri", this.config.redirectUri);
-    url.searchParams.set("scope", this.config.scope ?? "openid profile email");
-    url.searchParams.set("state", state);
-    url.searchParams.set("code_challenge", codeChallenge);
-    url.searchParams.set("code_challenge_method", "S256");
-    url.searchParams.set("prompt", "none");
+    const { url } = await this.buildAuthorizeUrl({ prompt: "none" });
     return new Promise((resolve) => {
       const iframe = document.createElement("iframe");
       iframe.style.display = "none";
@@ -763,7 +694,7 @@ var IAM = class {
     }
     return null;
   }
-  /** Clear all stored tokens (logout). */
+  /** Clear all stored tokens (local logout). */
   clearTokens() {
     this.storage.removeItem(KEY_ACCESS_TOKEN);
     this.storage.removeItem(KEY_REFRESH_TOKEN);
@@ -773,241 +704,17 @@ var IAM = class {
     this.storage.removeItem(KEY_CODE_VERIFIER);
   }
   // -----------------------------------------------------------------------
-  // User info
-  // -----------------------------------------------------------------------
-  /** Fetch user info from the OIDC userinfo endpoint using the stored access token. */
-  async getUserInfo() {
-    const token = await this.getValidAccessToken();
-    if (!token) {
-      throw new Error("No valid access token \u2014 user must log in");
-    }
-    const discovery = await this.getDiscovery();
-    const userinfoUrl = this.config.proxyBaseUrl ? `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/auth/userinfo` : discovery.userinfo_endpoint;
-    const res = await fetch(userinfoUrl, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (!res.ok) {
-      throw new Error(`Userinfo fetch failed (${res.status})`);
-    }
-    return await res.json();
-  }
-  // -----------------------------------------------------------------------
-  // URL helpers
-  // -----------------------------------------------------------------------
-  /** Build the signup URL for the IAM server. */
-  getSignupUrl(params) {
-    const base = this.config.serverUrl.replace(/\/+$/, "");
-    const app = this.config.appName ?? "app";
-    this.config.orgName ?? "built-in";
-    let url = `${base}/signup/${app}`;
-    if (params?.enablePassword) {
-      url += "?enablePassword=true";
-    }
-    return url;
-  }
-  /** Build the user profile URL on the IAM server. */
-  getUserProfileUrl(username) {
-    const base = this.config.serverUrl.replace(/\/+$/, "");
-    const org = this.config.orgName ?? "built-in";
-    return `${base}/users/${org}/${username}`;
-  }
-  // -----------------------------------------------------------------------
-  // Casdoor REST surface (signup, OTP, REST login, phone lookup)
-  //
-  // The OIDC layer covers redirect/PKCE, token exchange, refresh, userinfo.
-  // These methods cover the Casdoor-native endpoints that don't have an OIDC
-  // analogue: phone/email OTP, custom signup with verification codes, and
-  // direct REST login that returns an authorization code in one round-trip
-  // (used as the bridge between OTP collection and `exchangeCode`).
-  //
-  // All paths are gateway-canonical (`/login`, `/signup`,
-  // `/send-verification-code`, `/get-phone-user`) — point `serverUrl` at the
-  // gateway prefix (e.g. `https://api.dev./v1/iam`) and the
-  // gateway proxies to Casdoor's `/api/*` internally.
+  // RP-initiated logout
   // -----------------------------------------------------------------------
   /**
-   * Send a verification code to a phone or email destination.
-   *
-   * @param contact `{ phone, countryCode }` for SMS, `{ email }` for email.
-   * @param method  Casdoor method: `login`, `signup`, `forget`, `mfaSetup`, etc.
-   */
-  async sendVerificationCode(contact, method = "login") {
-    if (method === "reset") method = "forget";
-    const isPhone = "phone" in contact;
-    const dest = isPhone ? contact.phone : contact.email;
-    const params = {
-      applicationId: `admin/${this.config.appName ?? "app"}`,
-      dest,
-      type: isPhone ? "phone" : "email",
-      method,
-      captchaType: "none",
-      captchaToken: ""
-    };
-    if (isPhone) params.countryCode = contact.countryCode;
-    const url = `${this.config.serverUrl.replace(/\/+$/, "")}/send-verification-code`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams(params).toString()
-    });
-    const data = await res.json().catch(() => ({}));
-    if (data.status === "ok") return { ok: true };
-    const msg = data.msg || `send-verification-code failed (${res.status})`;
-    if (msg.includes("SMS provider") || msg.includes("provider")) return { ok: true };
-    return { ok: false, error: msg };
-  }
-  /**
-   * Look up whether a phone number is registered. Returns `{ exists: false }`
-   * on 404 or unknown numbers; `{ exists: true }` when Casdoor confirms a user.
-   */
-  async lookupPhoneUser(phone, countryCode) {
-    const url = `${this.config.serverUrl.replace(/\/+$/, "")}/get-phone-user`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        application: this.config.appName ?? "app",
-        phone,
-        countryCode
-      })
-    });
-    if (res.status === 404) return { exists: false };
-    if (!res.ok) return { exists: false, error: `lookupPhoneUser failed (${res.status})` };
-    return { exists: true };
-  }
-  /**
-   * Casdoor REST signup. Returns the new user's id on success.
-   *
-   * Phone signup flow: send phoneCode via `sendVerificationCode`, then call
-   * this with the OTP in `phoneCode`. Casdoor verifies the code internally.
-   * Email signup flow: same with `email` + `emailCode`.
-   */
-  async signup(params) {
-    const username = params.username ?? params.name;
-    const password = params.password ?? `Liq${Date.now()}!`;
-    const body = {
-      application: this.config.appName ?? "app",
-      organization: this.config.orgName ?? "built-in",
-      name: params.name,
-      username,
-      password,
-      confirm: password,
-      agreement: true
-    };
-    if (params.method === "email") {
-      body.email = params.email;
-      if (params.emailCode) body.emailCode = params.emailCode;
-    } else {
-      body.phone = params.phone;
-      body.countryCode = params.countryCode;
-      if (params.phoneCode) body.phoneCode = params.phoneCode;
-      if (params.email) body.email = params.email;
-      if (params.emailCode) body.emailCode = params.emailCode;
-    }
-    const url = `${this.config.serverUrl.replace(/\/+$/, "")}/signup`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-    const data = await res.json().catch(() => ({}));
-    if (data.status === "ok") return { ok: true, id: data.data2 || data.data };
-    return { ok: false, error: data.msg || `signup failed (${res.status})` };
-  }
-  /**
-   * REST login that returns an authorization code (Casdoor `/login`).
-   *
-   * Use this when you want the caller to drive the PKCE flow without a
-   * full redirect — collect credentials in your own UI, get a code back,
-   * then call `exchangeCodeForToken` to land tokens.
-   */
-  async loginWithCredentials(params) {
-    const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
-    this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
-    const url = new URL(`${this.config.serverUrl.replace(/\/+$/, "")}/login`);
-    url.searchParams.set("code_challenge", codeChallenge);
-    url.searchParams.set("code_challenge_method", "S256");
-    const res = await fetch(url.toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        application: this.config.appName ?? "app",
-        organization: this.config.orgName ?? "built-in",
-        username: params.username,
-        password: params.password,
-        type: params.type ?? "code",
-        clientId: this.config.clientId,
-        redirectUri: params.redirectUri ?? this.config.redirectUri,
-        codeChallenge,
-        codeChallengeMethod: "S256",
-        autoSignin: true
-      })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (data.status === "ok" && data.data) return { ok: true, code: data.data };
-    return { ok: false, error: data.msg || `login failed (${res.status})` };
-  }
-  /**
-   * Exchange an authorization code for tokens using the stored PKCE verifier.
-   * Pairs with `loginWithCredentials` for a code → tokens round-trip.
-   */
-  async exchangeCodeForToken(code, redirectUri) {
-    const codeVerifier = this.storage.getItem(KEY_CODE_VERIFIER);
-    if (!codeVerifier) {
-      throw new Error("Missing PKCE verifier \u2014 call loginWithCredentials() first");
-    }
-    this.storage.removeItem(KEY_CODE_VERIFIER);
-    const discovery = await this.getDiscovery();
-    const tokenUrl = this.config.proxyBaseUrl ? `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/auth/token` : discovery.token_endpoint;
-    const body = new URLSearchParams({
-      grant_type: "authorization_code",
-      client_id: this.config.clientId,
-      code,
-      redirect_uri: redirectUri ?? this.config.redirectUri,
-      code_verifier: codeVerifier
-    });
-    const res = await fetch(tokenUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString()
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      throw new Error(err.error_description || err.error || "Token exchange failed");
-    }
-    const tokens = await res.json();
-    this.storeTokens(tokens);
-    return toIAMToken(tokens);
-  }
-  /**
-   * Phone OTP login: tries the numbered username variants Casdoor accepts
-   * (`{phone}`, `{countryCode}{phone}`), exchanges the resulting code for
-   * tokens. Returns the token response, or throws on failure.
-   */
-  async loginWithPhoneOTP(params) {
-    const usernames = [params.phone, `${params.countryCode}${params.phone}`];
-    let lastError = "";
-    for (const username of usernames) {
-      const result = await this.loginWithCredentials({
-        username,
-        password: params.code,
-        redirectUri: params.redirectUri
-      });
-      if (result.ok && result.code) {
-        return this.exchangeCodeForToken(result.code, params.redirectUri);
-      }
-      lastError = result.error ?? lastError;
-    }
-    throw new Error(lastError || "Phone OTP login failed");
-  }
-  /**
-   * Logout via Casdoor REST `/logout` (clears server-side session) and
-   * the local storage.
+   * RP-initiated logout (OIDC). Best-effort POST to /oauth/logout to
+   * terminate the server-side session, then clears local tokens.
    */
   async logout() {
     const token = this.storage.getItem(KEY_ACCESS_TOKEN);
+    const baseUrl = this.config.serverUrl.replace(/\/+$/, "");
     try {
-      await fetch(`${this.config.serverUrl.replace(/\/+$/, "")}/oauth/logout`, {
+      await fetch(`${baseUrl}/oauth/logout`, {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
@@ -1016,30 +723,22 @@ var IAM = class {
     this.clearTokens();
   }
   // -----------------------------------------------------------------------
-  // High-level helpers — normalize to ergonomic types so apps don't need
-  // their own adapters around the OIDC/Casdoor wire shapes.
+  // User info
   // -----------------------------------------------------------------------
-  /**
-   * Build a social-login authorize URL. Used to navigate the user to
-   * Google/Apple/etc. — same as `signinRedirect` but returns the URL
-   * instead of issuing the redirect, so apps can `<a href="...">`.
-   */
-  async getSocialLoginUrl(provider, scope = "openid profile email") {
-    const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
-    const state = generateState();
-    this.storage.setItem(KEY_STATE, state);
-    this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
-    const discovery = await this.getDiscovery();
-    const url = new URL(discovery.authorization_endpoint);
-    url.searchParams.set("client_id", this.config.clientId);
-    url.searchParams.set("response_type", "code");
-    url.searchParams.set("redirect_uri", this.config.redirectUri);
-    url.searchParams.set("scope", scope);
-    url.searchParams.set("state", state);
-    url.searchParams.set("code_challenge", codeChallenge);
-    url.searchParams.set("code_challenge_method", "S256");
-    url.searchParams.set("provider", provider);
-    return url.toString();
+  /** Fetch user info from /oauth/userinfo using the stored access token. */
+  async getUserInfo() {
+    const token = await this.getValidAccessToken();
+    if (!token) {
+      throw new Error("No valid access token \u2014 user must log in");
+    }
+    const url = await this.userinfoEndpoint();
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      throw new Error(`Userinfo fetch failed (${res.status})`);
+    }
+    return await res.json();
   }
   /**
    * Fetch the current user, shaped into the canonical `IAMUser` form

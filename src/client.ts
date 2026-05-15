@@ -1,13 +1,24 @@
 /**
- * Core HTTP client for Hanzo IAM API.
+ * Core HTTP client for Hanzo IAM.
+ *
+ * Speaks pure OIDC / OAuth2 only. No Casdoor `/api/get-*` admin REST.
+ * Identity, users, organizations are read from the validated JWT or
+ * the OIDC userinfo endpoint — never from `/api/get-organizations`
+ * style admin queries. Surface the IamClient exposes:
+ *
+ *   - getDiscovery       — /.well-known/openid-configuration
+ *   - getJwksUri         — convenience over discovery
+ *   - getAuthorizationUrl— builds the authorize redirect (PKCE)
+ *   - exchangeCode       — code → tokens (RFC 6749 §4.1)
+ *   - passwordGrant      — ROPC for CLIs / e2e tests (RFC 6749 §4.3)
+ *   - refreshToken       — refresh grant (RFC 6749 §6)
+ *   - getUserInfo        — /oauth/userinfo (RFC OIDC core §5.3)
+ *   - apiRequest         — escape hatch for app-specific endpoints
  */
 
 import type {
   IamConfig,
-  IamApiResponse,
   IamUser,
-  IamOrganization,
-  IamProject,
   OidcDiscovery,
   TokenResponse,
 } from "./types.js";
@@ -144,7 +155,7 @@ export class IamClient {
     return url.toString();
   }
 
-  /** Exchange authorization code for tokens. */
+  /** Exchange authorization code for tokens (RFC 6749 §4.1). */
   async exchangeCode(params: {
     code: string;
     redirectUri: string;
@@ -184,8 +195,9 @@ export class IamClient {
   }
 
   /**
-   * Resource Owner Password Credentials grant.
-   * Used for service-to-service auth, CLI login, and e2e tests.
+   * Resource Owner Password Credentials grant (RFC 6749 §4.3).
+   * For service-to-service auth, CLI login, and e2e tests only.
+   * Browsers should use the redirect flow.
    */
   async passwordGrant(params: {
     username: string;
@@ -223,7 +235,7 @@ export class IamClient {
     }
   }
 
-  /** Refresh an access token. */
+  /** Refresh an access token (RFC 6749 §6). */
   async refreshToken(refreshToken: string): Promise<TokenResponse> {
     const discovery = await this.getDiscovery();
     const body = new URLSearchParams({
@@ -255,10 +267,10 @@ export class IamClient {
   }
 
   // -----------------------------------------------------------------------
-  // User
+  // User (OIDC userinfo only — no Casdoor /api/get-user)
   // -----------------------------------------------------------------------
 
-  /** Get user info from access token (OIDC userinfo endpoint). */
+  /** Fetch user claims from the OIDC userinfo endpoint (OIDC core §5.3). */
   async getUserInfo(accessToken: string): Promise<IamUser> {
     const discovery = await this.getDiscovery();
     const controller = new AbortController();
@@ -277,103 +289,25 @@ export class IamClient {
     }
   }
 
-  /** Get a user by ID ("org/username" format). */
-  async getUser(userId: string, token?: string): Promise<IamUser | null> {
-    const resp = await this.request<IamApiResponse<IamUser>>("/api/get-user", {
-      params: { id: userId },
-      token,
-    });
-    return resp.data ?? null;
-  }
-
   // -----------------------------------------------------------------------
-  // Organization
+  // Escape hatch — for app-specific endpoints under the same IAM origin
   // -----------------------------------------------------------------------
 
-  /** List organizations (for the configured owner). */
-  async getOrganizations(token?: string): Promise<IamOrganization[]> {
-    const owner = this.orgName ?? "admin";
-    const resp = await this.request<IamApiResponse<IamOrganization[]>>(
-      "/api/get-organizations",
-      { params: { owner }, token },
-    );
-    return resp.data ?? [];
-  }
-
-  /** Get a specific organization. */
-  async getOrganization(
-    id: string,
-    token?: string,
-  ): Promise<IamOrganization | null> {
-    const resp = await this.request<IamApiResponse<IamOrganization>>(
-      "/api/get-organization",
-      { params: { id }, token },
-    );
-    return resp.data ?? null;
-  }
-
-  /** Get organizations a user belongs to. */
-  async getUserOrganizations(
-    userId: string,
-    token?: string,
-  ): Promise<IamOrganization[]> {
-    // IAM returns orgs the user is a member of via the user's properties.
-    // We can also query via get-user and read their signupApplication/org.
-    const user = await this.getUser(userId, token);
-    if (!user) return [];
-    // The owner field on a user is their org
-    const org = await this.getOrganization(
-      `admin/${user.owner}`,
-      token,
-    );
-    return org ? [org] : [];
-  }
-
-  // -----------------------------------------------------------------------
-  // Project
-  // -----------------------------------------------------------------------
-
-  /** List projects (for the configured owner). */
-  async getProjects(token?: string): Promise<IamProject[]> {
-    const owner = this.orgName ?? "admin";
-    const resp = await this.request<IamApiResponse<IamProject[]>>(
-      "/api/get-projects",
-      { params: { owner }, token },
-    );
-    return resp.data ?? [];
-  }
-
-  /** Get a specific project by ID ("owner/name" format). */
-  async getProject(id: string, token?: string): Promise<IamProject | null> {
-    const resp = await this.request<IamApiResponse<IamProject>>(
-      "/api/get-project",
-      { params: { id }, token },
-    );
-    return resp.data ?? null;
-  }
-
-  /** Get all projects for an organization. */
-  async getOrganizationProjects(
-    organization: string,
-    token?: string,
-  ): Promise<IamProject[]> {
-    const resp = await this.request<IamApiResponse<IamProject[]>>(
-      "/api/get-organization-projects",
-      { params: { organization }, token },
-    );
-    return resp.data ?? [];
-  }
-
-  // -----------------------------------------------------------------------
-  // Raw request (for extending)
-  // -----------------------------------------------------------------------
-
-  /** Make an arbitrary authenticated request to the IAM API. */
+  /**
+   * Make an arbitrary authenticated request to the IAM server.
+   * Intentionally untyped — callers that need org/project listings
+   * should query their own admin API, not the IAM SDK.
+   */
   async apiRequest<T = unknown>(
     path: string,
     opts?: { method?: string; body?: unknown; token?: string; params?: Record<string, string> },
   ): Promise<T> {
     return this.request<T>(path, opts);
+  }
+
+  /** Bound owner/app context if the consumer passed them on construction. */
+  get context(): { orgName?: string; appName?: string } {
+    return { orgName: this.orgName, appName: this.appName };
   }
 }
 

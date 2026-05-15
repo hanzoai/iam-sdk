@@ -1,12 +1,20 @@
 import { IamConfig, TokenResponse } from './types.cjs';
 
 /**
- * Browser-side OAuth2 flows for Hanzo IAM.
+ * Browser-side OAuth2/OIDC PKCE flow for Hanzo IAM.
  *
- * Provides PKCE-based login redirect, code exchange, token refresh,
- * popup signin, and silent signin for single-page applications.
+ * Pure standards: RFC 6749 (OAuth2), RFC 7636 (PKCE), OIDC core. No
+ * Casdoor REST shortcuts (`/login`, `/signup`, `/send-verification-code`,
+ * `/get-phone-user`, etc.). Apps drive a single redirect-to-authorize
+ * flow; the IAM server owns every credential interaction.
  *
- * Adapted and modernized for Hanzo IAM.
+ *   IAM#signinRedirect()    — start PKCE redirect to /oauth/authorize
+ *   IAM#handleCallback()    — exchange code at /oauth/token
+ *   IAM#refreshAccessToken()— refresh grant
+ *   IAM#signinPopup()       — same flow in a popup window
+ *   IAM#signinSilent()      — prompt=none iframe attempt
+ *   IAM#getUserInfo()       — /oauth/userinfo
+ *   IAM#logout()            — RP-initiated logout (/oauth/logout)
  */
 
 type IAMConfig = IamConfig & {
@@ -17,11 +25,11 @@ type IAMConfig = IamConfig & {
     /** Storage to use for tokens (default: sessionStorage). */
     storage?: Storage;
     /**
-     * Proxy base URL for token exchange and userinfo requests.
-     * When set, token exchange POSTs go to `${proxyBaseUrl}/auth/token`
-     * and userinfo GETs go to `${proxyBaseUrl}/auth/userinfo` instead of
-     * directly to the IAM server. This avoids CORS issues when the IAM
-     * server doesn't send Access-Control-Allow-Origin headers.
+     * Optional proxy base URL for the token + userinfo endpoints.
+     * When set, token exchange POSTs hit `${proxyBaseUrl}/oauth/token`
+     * and userinfo GETs hit `${proxyBaseUrl}/oauth/userinfo` instead of
+     * the IAM origin directly. Use this to keep cross-origin requests
+     * off the browser (gateway proxies same-origin to IAM).
      */
     proxyBaseUrl?: string;
 };
@@ -31,21 +39,30 @@ declare class IAM {
     private discoveryCache;
     constructor(config: IAMConfig);
     private getDiscovery;
+    private tokenEndpoint;
+    private userinfoEndpoint;
+    private buildAuthorizeUrl;
     /**
-     * Start the OAuth2 PKCE login flow by redirecting to the IAM authorize endpoint.
-     *
-     * Generates PKCE challenge and state, stores them in session storage,
-     * then redirects the browser.
+     * Start the OAuth2 PKCE login flow by redirecting to /oauth/authorize.
+     * Generates PKCE challenge + state, stores them in session storage,
+     * then sets `window.location.href`.
      */
     signinRedirect(params?: {
         additionalParams?: Record<string, string>;
     }): Promise<void>;
     /**
-     * Handle the OAuth2 callback after redirect. Exchanges the authorization code
-     * for tokens using PKCE.
+     * Build the authorize URL without redirecting — useful for `<a href>`
+     * (e.g. social login buttons with `provider` in additionalParams).
+     */
+    getSigninUrl(params?: {
+        additionalParams?: Record<string, string>;
+    }): Promise<string>;
+    /**
+     * Handle the OAuth2 callback after the IAM redirect. Validates state,
+     * exchanges the authorization code for tokens with PKCE, and stores
+     * the result.
      *
-     * Call this on your callback page (e.g. /auth/callback).
-     * Returns the token response, or throws if the state doesn't match.
+     * Call this on your callback route (e.g. /auth/callback).
      */
     handleCallback(callbackUrl?: string): Promise<IAMToken>;
     /** Refresh the access token using the stored refresh token. */
@@ -60,8 +77,7 @@ declare class IAM {
         additionalParams?: Record<string, string>;
     }): Promise<IAMToken>;
     /**
-     * Attempt silent authentication via a hidden iframe.
-     * Useful for checking if the user has an active IAM session.
+     * Attempt silent authentication via a hidden iframe (`prompt=none`).
      * Returns null if silent auth fails (user needs to log in interactively).
      */
     signinSilent(timeoutMs?: number): Promise<IAMToken | null>;
@@ -79,105 +95,15 @@ declare class IAM {
      * Returns null if no token and no refresh token available.
      */
     getValidAccessToken(): Promise<string | null>;
-    /** Clear all stored tokens (logout). */
+    /** Clear all stored tokens (local logout). */
     clearTokens(): void;
-    /** Fetch user info from the OIDC userinfo endpoint using the stored access token. */
-    getUserInfo(): Promise<Record<string, unknown>>;
-    /** Build the signup URL for the IAM server. */
-    getSignupUrl(params?: {
-        enablePassword?: boolean;
-    }): string;
-    /** Build the user profile URL on the IAM server. */
-    getUserProfileUrl(username: string): string;
     /**
-     * Send a verification code to a phone or email destination.
-     *
-     * @param contact `{ phone, countryCode }` for SMS, `{ email }` for email.
-     * @param method  Casdoor method: `login`, `signup`, `forget`, `mfaSetup`, etc.
-     */
-    sendVerificationCode(contact: {
-        phone: string;
-        countryCode: string;
-    } | {
-        email: string;
-    }, method?: "login" | "signup" | "forget" | "reset" | "mfaSetup"): Promise<{
-        ok: boolean;
-        error?: string;
-    }>;
-    /**
-     * Look up whether a phone number is registered. Returns `{ exists: false }`
-     * on 404 or unknown numbers; `{ exists: true }` when Casdoor confirms a user.
-     */
-    lookupPhoneUser(phone: string, countryCode: string): Promise<{
-        exists: boolean;
-        error?: string;
-    }>;
-    /**
-     * Casdoor REST signup. Returns the new user's id on success.
-     *
-     * Phone signup flow: send phoneCode via `sendVerificationCode`, then call
-     * this with the OTP in `phoneCode`. Casdoor verifies the code internally.
-     * Email signup flow: same with `email` + `emailCode`.
-     */
-    signup(params: {
-        method: "email" | "phone";
-        name: string;
-        username?: string;
-        email?: string;
-        phone?: string;
-        countryCode?: string;
-        password?: string;
-        emailCode?: string;
-        phoneCode?: string;
-    }): Promise<{
-        id?: string;
-        ok: boolean;
-        error?: string;
-    }>;
-    /**
-     * REST login that returns an authorization code (Casdoor `/login`).
-     *
-     * Use this when you want the caller to drive the PKCE flow without a
-     * full redirect — collect credentials in your own UI, get a code back,
-     * then call `exchangeCodeForToken` to land tokens.
-     */
-    loginWithCredentials(params: {
-        username: string;
-        password: string;
-        type?: "code" | "token";
-        redirectUri?: string;
-    }): Promise<{
-        code?: string;
-        ok: boolean;
-        error?: string;
-    }>;
-    /**
-     * Exchange an authorization code for tokens using the stored PKCE verifier.
-     * Pairs with `loginWithCredentials` for a code → tokens round-trip.
-     */
-    exchangeCodeForToken(code: string, redirectUri?: string): Promise<IAMToken>;
-    /**
-     * Phone OTP login: tries the numbered username variants Casdoor accepts
-     * (`{phone}`, `{countryCode}{phone}`), exchanges the resulting code for
-     * tokens. Returns the token response, or throws on failure.
-     */
-    loginWithPhoneOTP(params: {
-        phone: string;
-        countryCode: string;
-        code: string;
-        redirectUri?: string;
-    }): Promise<IAMToken>;
-    /**
-     * Logout via Casdoor REST `/logout` (clears server-side session) and
-     * the local storage.
+     * RP-initiated logout (OIDC). Best-effort POST to /oauth/logout to
+     * terminate the server-side session, then clears local tokens.
      */
     logout(): Promise<void>;
-    /**
-     * Build a social-login authorize URL. Used to navigate the user to
-     * Google/Apple/etc. — same as `signinRedirect` but returns the URL
-     * instead of issuing the redirect, so apps can `<a href="...">`.
-     */
-    getSocialLoginUrl(provider: string, scope?: string): Promise<string>;
+    /** Fetch user info from /oauth/userinfo using the stored access token. */
+    getUserInfo(): Promise<Record<string, unknown>>;
     /**
      * Fetch the current user, shaped into the canonical `IAMUser` form
      * (camelCase, no `_` keys). Returns null when no token is present.
@@ -186,8 +112,7 @@ declare class IAM {
 }
 /**
  * Canonical user shape returned by `IAM#getUser()`. Maps the OIDC userinfo
- * response (snake_case) to camelCase. Apps should consume this rather than
- * the raw `Record<string, unknown>` from `getUserInfo()`.
+ * response (snake_case) to camelCase.
  */
 type IAMUser = {
     sub: string;
