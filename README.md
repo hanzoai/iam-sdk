@@ -83,9 +83,9 @@ const { active, subscription, plan } = await billing.isSubscriptionActive("my-or
 ## Browser Usage (SPA)
 
 ```typescript
-import { BrowserIamSdk } from "@hanzo/iam";
+import { IAM } from "@hanzo/iam";
 
-const iam = new BrowserIamSdk({
+const iam = new IAM({
   serverUrl: "https://iam.hanzo.ai",
   clientId: "my-spa",
   redirectUri: "https://myapp.com/auth/callback",
@@ -95,10 +95,10 @@ const iam = new BrowserIamSdk({
 await iam.signinRedirect();
 
 // On callback page
-const tokens = await iam.handleCallback();
+const token = await iam.handleCallback();
 
 // Get a valid token (auto-refreshes if expired)
-const token = await iam.getValidAccessToken();
+const access = await iam.getValidAccessToken();
 
 // Fetch user info
 const user = await iam.getUserInfo();
@@ -107,14 +107,32 @@ const user = await iam.getUserInfo();
 iam.clearTokens();
 ```
 
+### Conditional resolution
+
+A single import line resolves to the right build per environment via the
+package.json `exports` `browser` / `node` conditions:
+
+| Consumer | Resolves to | Surface |
+|----------|-------------|---------|
+| Vite, webpack, Next.js, esbuild (browser target) | `dist/browser.js` | `IAM`, `toIAMToken`, `IAMConfig`, `IAMUser`, `IAMToken` |
+| Node 18+ (`node` condition) | `dist/index.js` | `IamClient`, `validateToken`, `IAM`, types — full surface |
+| Fallback (`default`) | `dist/index.js` | Full Node surface |
+
+So both code paths are valid:
+
+```typescript
+// SPA / Next.js client / any bundled browser app
+import { IAM } from "@hanzo/iam";
+
+// Node service / SSR / scripts
+import { IamClient, validateToken } from "@hanzo/iam";
+```
+
 ## Sub-path Imports
 
 ```typescript
 // Server-side JWT validation only (lighter import)
 import { validateToken } from "@hanzo/iam/auth";
-
-// Browser PKCE flows only
-import { BrowserIamSdk } from "@hanzo/iam/browser";
 
 // Billing only
 import { IamBillingClient } from "@hanzo/iam/billing";
@@ -122,6 +140,11 @@ import { IamBillingClient } from "@hanzo/iam/billing";
 // Types only
 import type { IamConfig, IamUser } from "@hanzo/iam/types";
 ```
+
+> **Deprecated**: `import { IAM } from "@hanzo/iam/browser"` still works
+> but is no longer needed — use the bare specifier `@hanzo/iam` and let
+> the `browser` export condition pick the right build. The `/browser`
+> subpath will be removed in a future major.
 
 ## Configuration
 
