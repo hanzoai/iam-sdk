@@ -7,7 +7,7 @@
 // Config
 // ---------------------------------------------------------------------------
 
-export type IamConfig = {
+export type Config = {
   /** IAM server base URL (e.g. "https://iam.hanzo.ai"). */
   serverUrl: string;
   /** OAuth2 client ID. */
@@ -19,6 +19,8 @@ export type IamConfig = {
   /** Application name. */
   appName?: string;
 };
+/** @deprecated Use {@link Config} instead. */
+export type IamConfig = Config;
 
 // ---------------------------------------------------------------------------
 // OIDC
@@ -48,7 +50,7 @@ export type TokenResponse = {
 // JWT Claims
 // ---------------------------------------------------------------------------
 
-export type IamJwtClaims = {
+export type JwtClaims = {
   /** Subject (user ID in format "org/username"). */
   sub: string;
   /** Issuer URL. */
@@ -74,12 +76,14 @@ export type IamJwtClaims = {
   /** Arbitrary extra claims. */
   [key: string]: unknown;
 };
+/** @deprecated Use {@link JwtClaims} instead. */
+export type IamJwtClaims = JwtClaims;
 
 // ---------------------------------------------------------------------------
 // User
 // ---------------------------------------------------------------------------
 
-export type IamUser = {
+export type User = {
   owner: string;
   name: string;
   id?: string;
@@ -93,12 +97,14 @@ export type IamUser = {
   createdTime?: string;
   signupApplication?: string;
 };
+/** @deprecated Use {@link User} instead. */
+export type IamUser = User;
 
 // ---------------------------------------------------------------------------
 // Organization
 // ---------------------------------------------------------------------------
 
-export type IamOrganization = {
+export type Organization = {
   owner: string;
   name: string;
   displayName?: string;
@@ -113,6 +119,8 @@ export type IamOrganization = {
   balanceCredit?: number;
   balanceCurrency?: string;
 };
+/** @deprecated Use {@link Organization} instead. */
+export type IamOrganization = Organization;
 
 // ---------------------------------------------------------------------------
 // Billing (canonical types — backed by Commerce service)
@@ -230,7 +238,7 @@ export type IamUsageSummary = UsageSummary;
 // Project
 // ---------------------------------------------------------------------------
 
-export type IamProject = {
+export type Project = {
   owner: string;
   name: string;
   displayName?: string;
@@ -241,12 +249,14 @@ export type IamProject = {
   isDefault?: boolean;
   createdTime?: string;
 };
+/** @deprecated Use {@link Project} instead. */
+export type IamProject = Project;
 
 // ---------------------------------------------------------------------------
 // Auth result
 // ---------------------------------------------------------------------------
 
-export type IamAuthResult =
+export type AuthResult =
   | {
       ok: true;
       userId: string;
@@ -254,20 +264,24 @@ export type IamAuthResult =
       name?: string;
       avatar?: string;
       owner: string;
-      claims: IamJwtClaims;
+      claims: JwtClaims;
     }
   | {
       ok: false;
       reason: string;
     };
+/** @deprecated Use {@link AuthResult} instead. */
+export type IamAuthResult = AuthResult;
 
 // ---------------------------------------------------------------------------
 // API response wrapper
 // ---------------------------------------------------------------------------
 
-export type IamApiResponse<T> = {
+export type ApiResponse<T> = {
   status: "ok" | "error";
   msg?: string;
   data?: T;
   data2?: unknown;
 };
+/** @deprecated Use {@link ApiResponse} instead. */
+export type IamApiResponse<T> = ApiResponse<T>;
