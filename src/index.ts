@@ -35,15 +35,19 @@ export { generatePKCEChallenge, generateState } from "./pkce.js";
 // React bindings — import from "@hanzo/iam/react" for tree-shaking:
 //   import { IamProvider, useIam, useOrganizations } from "@hanzo/iam/react"
 
-// Types (re-export everything)
+// Types — canonical (clean) names. The package name "@hanzo/iam" is the
+// namespace, so consumers write `import { User, Organization } from '@hanzo/iam'`.
+// Legacy `Iam*` aliases are still exported below for back-compat.
 export type {
-  IamConfig,
+  Config,
   OidcDiscovery,
   TokenResponse,
-  IamJwtClaims,
-  IamUser,
-  IamOrganization,
-  IamProject,
+  JwtClaims,
+  User,
+  Organization,
+  Project,
+  AuthResult,
+  ApiResponse,
   Subscription,
   Plan,
   Pricing,
@@ -51,6 +55,17 @@ export type {
   Order,
   UsageRecord,
   UsageSummary,
+} from "./types.js";
+
+// Legacy aliases — kept for back-compat with consumers on @hanzo/iam ≤ 0.10.0.
+export type {
+  IamConfig,
+  IamJwtClaims,
+  IamUser,
+  IamOrganization,
+  IamProject,
+  IamAuthResult,
+  IamApiResponse,
   IamSubscription,
   IamPlan,
   IamPricing,
@@ -58,6 +73,4 @@ export type {
   IamOrder,
   IamUsageRecord,
   IamUsageSummary,
-  IamAuthResult,
-  IamApiResponse,
 } from "./types.js";
