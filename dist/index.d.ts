@@ -1,5 +1,5 @@
 import { IamConfig, OidcDiscovery, TokenResponse, IamUser } from './types.js';
-export { IamApiResponse, IamAuthResult, IamJwtClaims, IamOrder, IamOrganization, IamPayment, IamPlan, IamPricing, IamProject, IamSubscription, IamUsageRecord, IamUsageSummary, Order, Payment, Plan, Pricing, Subscription, UsageRecord, UsageSummary } from './types.js';
+export { ApiResponse, AuthResult, Config, IamApiResponse, IamAuthResult, IamJwtClaims, IamOrder, IamOrganization, IamPayment, IamPlan, IamPricing, IamProject, IamSubscription, IamUsageRecord, IamUsageSummary, JwtClaims, Order, Organization, Payment, Plan, Pricing, Project, Subscription, UsageRecord, UsageSummary, User } from './types.js';
 export { clearJwksCache, validateToken } from './auth.js';
 export { IAM, IAMConfig, IAMToken, IAMUser, toIAMToken } from './browser.js';
 
