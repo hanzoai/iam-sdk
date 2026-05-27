@@ -2,7 +2,7 @@
  * Core types for the Hanzo IAM SDK.
  * Hanzo IAM data models.
  */
-type IamConfig = {
+type Config = {
     /** IAM server base URL (e.g. "https://iam.hanzo.ai"). */
     serverUrl: string;
     /** OAuth2 client ID. */
@@ -14,6 +14,8 @@ type IamConfig = {
     /** Application name. */
     appName?: string;
 };
+/** @deprecated Use {@link Config} instead. */
+type IamConfig = Config;
 type OidcDiscovery = {
     issuer: string;
     authorization_endpoint: string;
@@ -32,7 +34,7 @@ type TokenResponse = {
     id_token?: string;
     scope?: string;
 };
-type IamJwtClaims = {
+type JwtClaims = {
     /** Subject (user ID in format "org/username"). */
     sub: string;
     /** Issuer URL. */
@@ -58,7 +60,9 @@ type IamJwtClaims = {
     /** Arbitrary extra claims. */
     [key: string]: unknown;
 };
-type IamUser = {
+/** @deprecated Use {@link JwtClaims} instead. */
+type IamJwtClaims = JwtClaims;
+type User = {
     owner: string;
     name: string;
     id?: string;
@@ -72,7 +76,9 @@ type IamUser = {
     createdTime?: string;
     signupApplication?: string;
 };
-type IamOrganization = {
+/** @deprecated Use {@link User} instead. */
+type IamUser = User;
+type Organization = {
     owner: string;
     name: string;
     displayName?: string;
@@ -87,6 +93,8 @@ type IamOrganization = {
     balanceCredit?: number;
     balanceCurrency?: string;
 };
+/** @deprecated Use {@link Organization} instead. */
+type IamOrganization = Organization;
 type Subscription = {
     owner: string;
     name: string;
@@ -186,7 +194,7 @@ type IamPayment = Payment;
 type IamOrder = Order;
 type IamUsageRecord = UsageRecord;
 type IamUsageSummary = UsageSummary;
-type IamProject = {
+type Project = {
     owner: string;
     name: string;
     displayName?: string;
@@ -197,23 +205,29 @@ type IamProject = {
     isDefault?: boolean;
     createdTime?: string;
 };
-type IamAuthResult = {
+/** @deprecated Use {@link Project} instead. */
+type IamProject = Project;
+type AuthResult = {
     ok: true;
     userId: string;
     email?: string;
     name?: string;
     avatar?: string;
     owner: string;
-    claims: IamJwtClaims;
+    claims: JwtClaims;
 } | {
     ok: false;
     reason: string;
 };
-type IamApiResponse<T> = {
+/** @deprecated Use {@link AuthResult} instead. */
+type IamAuthResult = AuthResult;
+type ApiResponse<T> = {
     status: "ok" | "error";
     msg?: string;
     data?: T;
     data2?: unknown;
 };
+/** @deprecated Use {@link ApiResponse} instead. */
+type IamApiResponse<T> = ApiResponse<T>;
 
-export type { IamApiResponse, IamAuthResult, IamConfig, IamJwtClaims, IamOrder, IamOrganization, IamPayment, IamPlan, IamPricing, IamProject, IamSubscription, IamUsageRecord, IamUsageSummary, IamUser, OidcDiscovery, Order, Payment, Plan, Pricing, Subscription, TokenResponse, UsageRecord, UsageSummary };
+export type { ApiResponse, AuthResult, Config, IamApiResponse, IamAuthResult, IamConfig, IamJwtClaims, IamOrder, IamOrganization, IamPayment, IamPlan, IamPricing, IamProject, IamSubscription, IamUsageRecord, IamUsageSummary, IamUser, JwtClaims, OidcDiscovery, Order, Organization, Payment, Plan, Pricing, Project, Subscription, TokenResponse, UsageRecord, UsageSummary, User };
