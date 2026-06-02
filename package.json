@@ -1,7 +1,7 @@
 {
   "name": "@hanzo/iam",
-  "version": "0.11.0",
-  "description": "TypeScript SDK for Hanzo IAM \u2014 OIDC auth, JWT validation, OAuth2 PKCE, user/org/project APIs",
+  "version": "0.10.0",
+  "description": "TypeScript SDK for Hanzo IAM — OIDC auth, JWT validation, OAuth2 PKCE, user/org/project APIs",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -60,6 +60,12 @@
       "types": "./dist/betterauth.d.ts",
       "import": "./dist/betterauth.js",
       "require": "./dist/betterauth.cjs"
+    },
+    "./validation": {
+      "types": "./dist/validation.d.ts",
+      "import": "./dist/validation.js",
+      "require": "./dist/validation.cjs",
+      "default": "./dist/validation.js"
     }
   },
   "files": [
@@ -78,6 +84,7 @@
   },
   "dependencies": {
     "jose": "^6.1.0",
+    "libphonenumber-js": "^1.13.3",
     "passport-oauth2": "^1.8.0"
   },
   "peerDependencies": {

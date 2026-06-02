@@ -32,7 +32,8 @@ export default defineConfig({
     'src/react.ts',
     'src/nextauth.ts',
     'src/passport.ts',
-    'src/betterauth.ts'
+    'src/betterauth.ts',
+    'src/validation.ts'
   ],
   format: ['esm', 'cjs'],
   dts: true,
