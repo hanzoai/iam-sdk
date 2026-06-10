@@ -51,7 +51,7 @@
  * ========================
  *
  * The onboarding flow is the 5-step pipeline that mirrors the
- * `~/work/liquidity/id` shape:
+ * canonical id-app shape:
  *
  *   <IdentityStep>   - PII (DOB, address)
  *   <DocumentsStep>  - multipart upload
