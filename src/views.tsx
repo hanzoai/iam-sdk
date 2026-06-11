@@ -55,7 +55,7 @@
  *
  *   <IdentityStep>   - PII (DOB, address)
  *   <DocumentsStep>  - multipart upload
- *   <BiometricStep>  - IDV provider handoff (/Persona/Jumio/custom)
+ *   <BiometricStep>  - IDV provider handoff (Persona/Jumio/custom)
  *   <ScreenStep>     - AML/sanctions
  *   <SubmitStep>     - finalize + fan-out
  *
