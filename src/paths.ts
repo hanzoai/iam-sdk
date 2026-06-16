@@ -1,0 +1,65 @@
+/**
+ * The single source of truth for Hanzo IAM OIDC endpoint paths.
+ *
+ * Hanzo IAM is a Casdoor-derived OIDC provider served per-brand from a
+ * configurable origin (`serverUrl`): hanzo → https://iam.hanzo.ai,
+ * lux → https://lux.id, zoo → https://zoo.id, bootnode → https://id.bootno.de.
+ *
+ * These are the ONLY paths. There is no legacy `/oauth/*` and no
+ * `/api/login/*`. Every module in this SDK references `OIDC_PATHS` —
+ * no path string is written anywhere else.
+ *
+ * CRITICAL GOTCHA: IAM serves a 200 `text/html` SPA catch-all for ANY
+ * unregistered path. A client that hits a wrong path therefore gets a
+ * 200 HTML body, not a 404 — silent breakage. So clients MUST hit these
+ * exact paths, and a discovery round-trip must never be allowed to
+ * resolve to a different path. The hard-coded fallbacks here are these
+ * same values, so a failed discovery degrades to correct paths.
+ */
+
+/** OIDC endpoint paths, relative to the brand `serverUrl`. */
+export const OIDC_PATHS = {
+  /** OIDC discovery document. */
+  discovery: "/.well-known/openid-configuration",
+  /** Authorization endpoint (RFC 6749 §3.1). */
+  authorize: "/v1/iam/oauth/authorize",
+  /** Token endpoint (RFC 6749 §3.2). */
+  token: "/v1/iam/oauth/token",
+  /** UserInfo endpoint (OIDC Core §5.3). */
+  userinfo: "/v1/iam/oauth/userinfo",
+  /** JWKS endpoint (RFC 7517). */
+  jwks: "/v1/iam/.well-known/jwks",
+  /** RP-initiated logout endpoint (OIDC RP-Initiated Logout). */
+  logout: "/v1/iam/oauth/logout",
+} as const;
+
+export type OidcPathKey = keyof typeof OIDC_PATHS;
+
+/**
+ * Hanzo-IAM application paths that are NOT part of the OIDC spec — the
+ * auth-method discovery endpoint and the onboarding state machine the
+ * embedded views drive. Mounted under the same `/v1/iam` prefix.
+ */
+export const IAM_PATHS = {
+  /** Live list of enabled auth methods for the embedded login views. */
+  authMethods: "/v1/iam/auth/methods",
+  /** Onboarding state-machine base (steps append `/identity`, etc.). */
+  onboarding: "/v1/iam/onboarding",
+} as const;
+
+export type IamPathKey = keyof typeof IAM_PATHS;
+
+/** Strip trailing slashes from a server origin so paths concat cleanly. */
+export function trimServerUrl(serverUrl: string): string {
+  return serverUrl.replace(/\/+$/, "");
+}
+
+/**
+ * Build an absolute IAM endpoint URL from a server origin and a path key.
+ *
+ * @example
+ * iamUrl("https://iam.hanzo.ai", "token") // → "https://iam.hanzo.ai/v1/iam/oauth/token"
+ */
+export function iamUrl(serverUrl: string, key: OidcPathKey): string {
+  return `${trimServerUrl(serverUrl)}${OIDC_PATHS[key]}`;
+}

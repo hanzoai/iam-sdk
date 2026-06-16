@@ -1,29 +1,79 @@
 # @hanzo/iam
 
-TypeScript SDK for [Hanzo IAM](https://iam.hanzo.ai) — identity & access management built on [Casdoor](https://casdoor.org).
+The one-way TypeScript SDK for authenticating against **Hanzo IAM** — a
+Casdoor-derived OIDC provider served per-brand from a configurable origin:
 
-## Features
+| Brand | `serverUrl` |
+|-------|-------------|
+| Hanzo | `https://iam.hanzo.ai` |
+| Lux | `https://lux.id` |
+| Zoo | `https://zoo.id` |
+| Bootnode | `https://id.bootno.de` |
 
-- **JWT Validation** — OIDC discovery + JWKS-based signature verification via [jose](https://github.com/panva/jose)
-- **OAuth2 PKCE** — Browser-side login flows (redirect, popup, silent signin)
-- **API Client** — Users, organizations, OIDC discovery, token exchange
-- **Billing** — Subscriptions, plans, pricing, payments, orders
-- **TypeScript** — Full type safety with exported interfaces
-- **Zero Config** — Auto-discovers endpoints via `.well-known/openid-configuration`
+One OIDC path set. One name per thing. No backwards-compatibility shims.
+
+## The canonical paths
+
+Every endpoint resolves through a single source of truth — `OIDC_PATHS`
+(`@hanzo/iam/paths`). These are the **only** paths; there is no legacy
+`/oauth/*` and no `/api/login/*`.
+
+| Endpoint | Path |
+|----------|------|
+| discovery | `/.well-known/openid-configuration` |
+| authorize | `/v1/iam/oauth/authorize` |
+| token | `/v1/iam/oauth/token` |
+| userinfo | `/v1/iam/oauth/userinfo` |
+| jwks | `/v1/iam/.well-known/jwks` |
+| logout | `/v1/iam/oauth/logout` |
+
+> **Gotcha** IAM serves a `200 text/html` SPA for any unregistered path.
+> A wrong path returns HTML, not a 404 — silent breakage. This SDK pins
+> the exact paths and never lets a failed discovery fall back to a wrong
+> one.
+
+PKCE (S256) is always on. Confidential clients use `client_secret_basic`.
+Scopes are `["openid", "profile", "email"]`.
 
 ## Install
 
 ```bash
-npm install @hanzo/iam
-# or
 pnpm add @hanzo/iam
 ```
 
-## Server-Side Usage
+## One canonical usage per integration
 
-### Validate a JWT
+### Server (Next.js App Router / Node / Hono / Remix) — `@hanzo/iam/server`
 
-```typescript
+The piece PaaS-class apps need: resolve the caller's identity from the
+bearer token or session cookie, verified against IAM's JWKS.
+
+```ts
+import { getServerSession, withSession } from "@hanzo/iam/server";
+
+const iam = { serverUrl: process.env.IAM_ENDPOINT!, clientId: process.env.IAM_CLIENT_ID! };
+
+// Option A — read the session yourself
+export async function GET(req: Request) {
+  const session = await getServerSession(req, iam);
+  if (!session) return new Response("unauthorized", { status: 401 });
+  return Response.json({ user: session.userId, org: session.owner, email: session.email });
+}
+
+// Option B — guard the handler (401 before your code runs)
+export const POST = withSession(iam, (req, session) =>
+  Response.json({ org: session.owner }),
+);
+```
+
+`getServerSession(req, config, options?)` returns
+`{ userId, owner, email?, claims } | null`. It reads `Authorization:
+Bearer …` first, then the `hanzo_iam_access_token` cookie (override with
+`options.cookieName`).
+
+### JWT validation — `@hanzo/iam` (or `@hanzo/iam/auth`)
+
+```ts
 import { validateToken } from "@hanzo/iam";
 
 const result = await validateToken(accessToken, {
@@ -32,57 +82,93 @@ const result = await validateToken(accessToken, {
 });
 
 if (result.ok) {
-  console.log(result.userId, result.email, result.owner);
-} else {
-  console.error(result.reason);
+  // result.userId, result.owner, result.email, result.claims
 }
 ```
 
-### API Client
+Audience **must** equal `clientId`; a mismatch fails with
+`iam_audience_invalid`. For IAM deployments that issue tokens without an
+`aud` claim, pass `allowMissingAudience: true` (the signature is still
+verified).
 
-```typescript
-import { IamClient } from "@hanzo/iam";
+### better-auth — `@hanzo/iam/betterauth`
 
-const client = new IamClient({
-  serverUrl: "https://iam.hanzo.ai",
-  clientId: "my-app",
-  clientSecret: process.env.IAM_CLIENT_SECRET,
+```ts
+import { betterAuth } from "better-auth";
+import { genericOAuth } from "better-auth/plugins";
+import { iamProvider } from "@hanzo/iam/betterauth";
+
+export const auth = betterAuth({
+  plugins: [
+    genericOAuth({
+      config: [
+        iamProvider({
+          serverUrl: process.env.IAM_ENDPOINT!,
+          clientId: process.env.IAM_CLIENT_ID!,
+          clientSecret: process.env.IAM_CLIENT_SECRET!,
+        }),
+      ],
+    }),
+  ],
 });
-
-// OAuth2 authorization URL
-const authUrl = await client.getAuthorizationUrl({
-  redirectUri: "https://myapp.com/callback",
-  state: "random-state",
-});
-
-// Exchange code for tokens
-const tokens = await client.exchangeCode({
-  code: "auth-code",
-  redirectUri: "https://myapp.com/callback",
-});
-
-// Get user info
-const user = await client.getUserInfo(tokens.access_token);
 ```
 
-### Billing
+`iamProvider` returns a real `genericOAuth` config entry
+(`providerId: "hanzo"`, pinned authorize/token/userinfo URLs, `pkce:
+true`, `authentication: "basic"`). No `discoveryUrl`.
 
-```typescript
-import { IamBillingClient } from "@hanzo/iam";
+### NextAuth.js / Auth.js — `@hanzo/iam/nextauth`
 
-const billing = new IamBillingClient({
-  serverUrl: "https://iam.hanzo.ai",
-  clientId: "my-app",
-  clientSecret: process.env.IAM_CLIENT_SECRET,
-  orgName: "my-org",
+```ts
+import NextAuth from "next-auth";
+import { IamProvider } from "@hanzo/iam/nextauth";
+
+export default NextAuth({
+  providers: [
+    IamProvider({
+      serverUrl: process.env.IAM_ENDPOINT!,
+      clientId: process.env.IAM_CLIENT_ID!,
+      clientSecret: process.env.IAM_CLIENT_SECRET!,
+    }),
+  ],
 });
-
-const { active, subscription, plan } = await billing.isSubscriptionActive("my-org");
 ```
 
-## Browser Usage (SPA)
+`checks` default to `["state", "pkce"]`. `wellKnown` points at OIDC
+discovery; openid-client follows it to the canonical JWKS endpoint.
 
-```typescript
+### React (SPA) — `@hanzo/iam/react`
+
+```tsx
+import { IamProvider, useIam, useOrganizations } from "@hanzo/iam/react";
+
+function App() {
+  return (
+    <IamProvider config={{
+      serverUrl: "https://iam.hanzo.ai",
+      clientId: "my-app",
+      redirectUri: `${window.location.origin}/auth/callback`,
+    }}>
+      <Main />
+    </IamProvider>
+  );
+}
+
+function Main() {
+  const { user, isAuthenticated, login, logout } = useIam();
+  const { currentOrg, switchOrg } = useOrganizations();
+  if (!isAuthenticated) return <button onClick={() => login()}>Log in</button>;
+  return <div>Welcome, {user?.displayName}</div>;
+}
+```
+
+Drop-in login + onboarding views live at `@hanzo/iam/views` (`Login`,
+`SocialButton`, `WalletButton`, `EmailPasswordForm`, `OTPStep`,
+`OnboardingFlow`, and the five onboarding step primitives).
+
+### Browser (framework-free PKCE) — `@hanzo/iam` (or `@hanzo/iam/browser`)
+
+```ts
 import { IAM } from "@hanzo/iam";
 
 const iam = new IAM({
@@ -91,74 +177,65 @@ const iam = new IAM({
   redirectUri: "https://myapp.com/auth/callback",
 });
 
-// Start login
-await iam.signinRedirect();
-
-// On callback page
-const token = await iam.handleCallback();
-
-// Get a valid token (auto-refreshes if expired)
-const access = await iam.getValidAccessToken();
-
-// Fetch user info
-const user = await iam.getUserInfo();
-
-// Logout
-iam.clearTokens();
+await iam.signinRedirect();           // start PKCE redirect
+const token = await iam.handleCallback();  // on the callback route
+const access = await iam.getValidAccessToken(); // auto-refreshes
+await iam.logout();
 ```
 
-### Conditional resolution
+### Passport.js — `@hanzo/iam/passport`
 
-A single import line resolves to the right build per environment via the
-package.json `exports` `browser` / `node` conditions:
+```ts
+import passport from "passport";
+import { createIamPassportStrategy } from "@hanzo/iam/passport";
 
-| Consumer | Resolves to | Surface |
-|----------|-------------|---------|
-| Vite, webpack, Next.js, esbuild (browser target) | `dist/browser.js` | `IAM`, `toIAMToken`, `IAMConfig`, `IAMUser`, `IAMToken` |
-| Node 18+ (`node` condition) | `dist/index.js` | `IamClient`, `validateToken`, `IAM`, types — full surface |
-| Fallback (`default`) | `dist/index.js` | Full Node surface |
-
-So both code paths are valid:
-
-```typescript
-// SPA / Next.js client / any bundled browser app
-import { IAM } from "@hanzo/iam";
-
-// Node service / SSR / scripts
-import { IamClient, validateToken } from "@hanzo/iam";
+passport.use("iam", createIamPassportStrategy({
+  serverUrl: "https://iam.hanzo.ai",
+  clientId: "my-app",
+  clientSecret: process.env.IAM_CLIENT_SECRET!,
+  callbackUrl: "https://app.hanzo.ai/v1/sso/oidc/callback",
+}));
 ```
 
-## Sub-path Imports
+### Validation — `@hanzo/iam/validation`
 
-```typescript
-// Server-side JWT validation only (lighter import)
-import { validateToken } from "@hanzo/iam/auth";
+```ts
+import { isValidPhone, isValidEmail } from "@hanzo/iam/validation";
 
-// Billing only
-import { IamBillingClient } from "@hanzo/iam/billing";
-
-// Types only
-import type { IamConfig, IamUser } from "@hanzo/iam/types";
+isValidPhone("6178888888", "+1"); // true — E.164 +16178888888
+isValidEmail("user@example.com"); // true
 ```
 
-> **Deprecated**: `import { IAM } from "@hanzo/iam/browser"` still works
-> but is no longer needed — use the bare specifier `@hanzo/iam` and let
-> the `browser` export condition pick the right build. The `/browser`
-> subpath will be removed in a future major.
+## Subpath map
+
+| Import | Surface |
+|--------|---------|
+| `@hanzo/iam` | `IamClient`, `IamApiError`, `validateToken`, `clearJwksCache`, `IAM`, `toIAMToken`, `generatePKCEChallenge`, `generateState`, `OIDC_PATHS`, `IAM_PATHS`, `iamUrl`, all types |
+| `@hanzo/iam/paths` | `OIDC_PATHS`, `IAM_PATHS`, `iamUrl`, `trimServerUrl` |
+| `@hanzo/iam/server` | `getServerSession`, `withSession`, `getBearerToken`, `SESSION_COOKIE`, `ServerSession` |
+| `@hanzo/iam/auth` | `validateToken`, `clearJwksCache` |
+| `@hanzo/iam/browser` | `IAM`, `toIAMToken`, `IAMConfig`, `IAMUser`, `IAMToken` |
+| `@hanzo/iam/react` | `IamProvider`, `useIam`, `useOrganizations`, `useIamToken`, `OrgProjectSwitcher` |
+| `@hanzo/iam/views` | `Login`, `SocialButton`, `WalletButton`, `EmailPasswordForm`, `OTPStep`, `OnboardingFlow`, `IdentityStep`, `DocumentsStep`, `BiometricStep`, `ScreenStep`, `SubmitStep`, `useAuthMethods` |
+| `@hanzo/iam/betterauth` | `iamProvider` |
+| `@hanzo/iam/nextauth` | `IamProvider` |
+| `@hanzo/iam/passport` | `createIamPassportStrategy` |
+| `@hanzo/iam/types` | all types |
+| `@hanzo/iam/validation` | `isValidPhone`, `isValidEmail` |
+
+Bare `@hanzo/iam` resolves to the browser build under a browser bundler
+and the Node build under Node, via package `exports` conditions.
 
 ## Configuration
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `serverUrl` | Yes | IAM server URL (e.g. `https://iam.hanzo.ai`) |
+| `serverUrl` | Yes | IAM origin (e.g. `https://iam.hanzo.ai`) |
 | `clientId` | Yes | OAuth2 client ID |
-| `clientSecret` | No | Client secret (server-side confidential clients) |
-| `orgName` | No | Organization name for scoped queries |
+| `clientSecret` | No | Secret for confidential clients |
+| `orgName` | No | Organization (owner) context |
 | `appName` | No | Application name |
-
-## Documentation
-
-Full docs: [docs.hanzo.ai/services/iam/sdk](https://docs.hanzo.ai/services/iam/sdk)
+| `allowMissingAudience` | No | Skip the `aud` check during `validateToken` (default `false`) |
 
 ## License
 

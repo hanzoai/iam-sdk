@@ -1,15 +1,23 @@
 /**
- * PKCE (Proof Key for Code Exchange) utilities for browser-side OAuth2 flows.
+ * PKCE (Proof Key for Code Exchange, RFC 7636) utilities for OAuth2/OIDC.
  *
- * PKCE utilities for OAuth2 flows, using native Web Crypto API.
+ * Uses the native Web Crypto API (`crypto.getRandomValues`,
+ * `crypto.subtle.digest`) — available in modern browsers and Node ≥ 18.
+ *
+ * The code verifier is the base64url encoding of 32 cryptographically
+ * random bytes (256 bits of entropy), which yields a 43-character
+ * `[A-Za-z0-9-_]` string — within RFC 7636's 43–128 character range and
+ * well above the minimum recommended entropy. The challenge is the
+ * base64url-encoded SHA-256 of the verifier (the `S256` method).
  */
 
-function generateRandomString(length: number): string {
-  const array = new Uint8Array(length);
-  crypto.getRandomValues(array);
-  return Array.from(array, (b) => b.toString(36).padStart(2, "0"))
-    .join("")
-    .slice(0, length);
+/** Number of random bytes for the verifier and state — 256 bits each. */
+const ENTROPY_BYTES = 32;
+
+function randomBase64Url(byteLength: number): string {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return base64UrlEncode(bytes.buffer);
 }
 
 async function sha256(plain: string): Promise<ArrayBuffer> {
@@ -26,18 +34,25 @@ function base64UrlEncode(buffer: ArrayBuffer): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Generate a PKCE code verifier + challenge pair. */
+/**
+ * Generate a PKCE code verifier + S256 challenge pair.
+ *
+ * `codeVerifier` carries 256 bits of entropy; `codeChallenge` is its
+ * base64url-encoded SHA-256 digest. Send `code_challenge` +
+ * `code_challenge_method=S256` on the authorize request, and
+ * `code_verifier` on the token exchange.
+ */
 export async function generatePKCEChallenge(): Promise<{
   codeVerifier: string;
   codeChallenge: string;
 }> {
-  const codeVerifier = generateRandomString(64);
+  const codeVerifier = randomBase64Url(ENTROPY_BYTES);
   const hash = await sha256(codeVerifier);
   const codeChallenge = base64UrlEncode(hash);
   return { codeVerifier, codeChallenge };
 }
 
-/** Generate a random state parameter for CSRF protection. */
+/** Generate a high-entropy (256-bit) `state` parameter for CSRF protection. */
 export function generateState(): string {
-  return generateRandomString(32);
+  return randomBase64Url(ENTROPY_BYTES);
 }
