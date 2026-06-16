@@ -22,9 +22,10 @@
 
 import OAuth2Strategy from "passport-oauth2";
 
-import type { IamConfig } from "./types.js";
+import type { Config } from "./types.js";
+import { iamUrl } from "./paths.js";
 
-export interface IamPassportConfig extends IamConfig {
+export interface IamPassportConfig extends Config {
   /** Full callback URL for OAuth2 redirect. */
   callbackUrl: string;
   /** OAuth2 scopes. Default: "openid profile email". */
@@ -53,7 +54,7 @@ export function createIamPassportStrategy(
   config: IamPassportConfig,
 ): unknown {
 
-  const baseUrl = config.serverUrl.replace(/\/+$/, "");
+  const userinfoUrl = iamUrl(config.serverUrl, "userinfo");
 
   const verify = async (
     ...args: unknown[]
@@ -64,7 +65,7 @@ export function createIamPassportStrategy(
     const done = args[4] as (err: Error | null, user?: IamPassportUser) => void;
 
     try {
-      const res = await fetch(`${baseUrl}/oauth/userinfo`, {
+      const res = await fetch(userinfoUrl, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (!res.ok) {
@@ -79,8 +80,8 @@ export function createIamPassportStrategy(
 
   return new OAuth2Strategy(
     {
-      authorizationURL: `${baseUrl}/oauth/authorize`,
-      tokenURL: `${baseUrl}/oauth/token`,
+      authorizationURL: iamUrl(config.serverUrl, "authorize"),
+      tokenURL: iamUrl(config.serverUrl, "token"),
       clientID: config.clientId,
       clientSecret: config.clientSecret ?? "",
       callbackURL: config.callbackUrl,

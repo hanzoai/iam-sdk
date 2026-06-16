@@ -1,6 +1,6 @@
 {
   "name": "@hanzo/iam",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "TypeScript SDK for Hanzo IAM — OIDC auth, JWT validation, OAuth2 PKCE, user/org/project APIs",
   "type": "module",
   "main": "dist/index.cjs",
@@ -31,10 +31,17 @@
       "import": "./dist/browser.js",
       "require": "./dist/browser.cjs"
     },
-    "./billing": {
-      "types": "./dist/billing.d.ts",
-      "import": "./dist/billing.js",
-      "require": "./dist/billing.cjs"
+    "./paths": {
+      "types": "./dist/paths.d.ts",
+      "import": "./dist/paths.js",
+      "require": "./dist/paths.cjs",
+      "default": "./dist/paths.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "require": "./dist/server.cjs",
+      "default": "./dist/server.js"
     },
     "./types": {
       "types": "./dist/types.d.ts",
@@ -45,6 +52,11 @@
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js",
       "require": "./dist/react.cjs"
+    },
+    "./views": {
+      "types": "./dist/views.d.ts",
+      "import": "./dist/views.js",
+      "require": "./dist/views.cjs"
     },
     "./nextauth": {
       "types": "./dist/nextauth.d.ts",
@@ -100,6 +112,7 @@
     "@types/passport-oauth2": "^1.8.0",
     "@types/react": "^19.0.0",
     "tsup": "^8.5.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.5.0"
   },
   "keywords": [
@@ -117,11 +130,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/hanzo-js/iam"
+    "url": "https://github.com/hanzoai/iam-sdk"
   },
   "homepage": "https://docs.hanzo.ai/services/iam/sdk",
   "bugs": {
-    "url": "https://github.com/hanzo-js/iam/issues"
+    "url": "https://github.com/hanzoai/iam-sdk/issues"
   },
   "author": "Hanzo AI <engineering@hanzo.ai>",
   "publishConfig": {

@@ -1,29 +1,27 @@
 /**
  * @hanzo/iam — TypeScript SDK for Hanzo IAM (identity & access management).
  *
- * Handles: auth (OIDC, JWT, PKCE), users, organizations, projects.
- * Billing is backed by Commerce — the BillingClient talks to Commerce API.
+ * Handles: auth (OIDC, JWT, PKCE), users, organizations, projects. One
+ * canonical OIDC path set (`OIDC_PATHS`), one name per thing.
  *
  * @example
  * ```ts
- * import { IamClient, BillingClient, validateToken } from "@hanzo/iam";
+ * import { IamClient, validateToken } from "@hanzo/iam";
  *
  * const client = new IamClient({
  *   serverUrl: "https://iam.hanzo.ai",
  *   clientId: "my-app",
  * });
  *
- * const billing = new BillingClient({
- *   commerceUrl: "https://commerce.hanzo.ai",
+ * const result = await validateToken(accessToken, {
+ *   serverUrl: "https://iam.hanzo.ai",
+ *   clientId: "my-app",
  * });
  * ```
  */
 
 // Core client (auth, users, orgs, projects → IAM)
 export { IamClient, IamApiError } from "./client.js";
-
-// Billing has moved to @hanzo/commerce. Import Commerce from "@hanzo/commerce" instead.
-// See: https://docs.hanzo.ai/services/commerce/sdk
 
 // JWT validation
 export { validateToken, clearJwksCache } from "./auth.js";
@@ -35,9 +33,9 @@ export { generatePKCEChallenge, generateState } from "./pkce.js";
 // React bindings — import from "@hanzo/iam/react" for tree-shaking:
 //   import { IamProvider, useIam, useOrganizations } from "@hanzo/iam/react"
 
-// Types — canonical (clean) names. The package name "@hanzo/iam" is the
-// namespace, so consumers write `import { User, Organization } from '@hanzo/iam'`.
-// Legacy `Iam*` aliases are still exported below for back-compat.
+// Types — one canonical name per thing. The package name "@hanzo/iam"
+// is the namespace, so consumers write
+// `import { User, Organization } from '@hanzo/iam'`.
 export type {
   Config,
   OidcDiscovery,
@@ -57,20 +55,5 @@ export type {
   UsageSummary,
 } from "./types.js";
 
-// Legacy aliases — kept for back-compat with consumers on @hanzo/iam ≤ 0.10.0.
-export type {
-  IamConfig,
-  IamJwtClaims,
-  IamUser,
-  IamOrganization,
-  IamProject,
-  IamAuthResult,
-  IamApiResponse,
-  IamSubscription,
-  IamPlan,
-  IamPricing,
-  IamPayment,
-  IamOrder,
-  IamUsageRecord,
-  IamUsageSummary,
-} from "./types.js";
+// Canonical OIDC paths — the single source of truth.
+export { OIDC_PATHS, IAM_PATHS, iamUrl, trimServerUrl } from "./paths.js";

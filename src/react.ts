@@ -45,7 +45,7 @@ import {
 import type { ReactNode } from "react";
 import { IAM } from "./browser.js";
 import type { IAMConfig } from "./browser.js";
-import type { IamUser, IamOrganization, IamProject } from "./types.js";
+import type { User, Organization, Project } from "./types.js";
 import type { IAMToken } from "./browser.js";
 
 // ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ export interface IamContextValue {
   /** The IAM configuration. */
   config: IAMConfig;
   /** Authenticated user (null if not logged in). */
-  user: IamUser | null;
+  user: User | null;
   /** Whether the user is currently authenticated. */
   isAuthenticated: boolean;
   /** Whether initial auth check is in progress. */
@@ -89,17 +89,17 @@ export interface IamContextValue {
 
 export interface OrgState {
   /** All organizations the user belongs to. */
-  organizations: IamOrganization[];
+  organizations: Organization[];
   /** Currently selected organization. */
-  currentOrg: IamOrganization | null;
+  currentOrg: Organization | null;
   /** Currently selected org ID. */
   currentOrgId: string | null;
   /** Switch to a different organization. */
   switchOrg: (orgId: string) => void;
   /** All projects for the current organization. */
-  projects: IamProject[];
+  projects: Project[];
   /** Currently selected project. */
-  currentProject: IamProject | null;
+  currentProject: Project | null;
   /** Currently selected project ID within the org. */
   currentProjectId: string | null;
   /** Switch to a different project (null to clear). */
@@ -113,7 +113,7 @@ export interface OrgState {
 // ---------------------------------------------------------------------------
 
 const IamContext = createContext<IamContextValue | null>(null);
-IamContext.displayName = "HanzoIamContext";
+IamContext.displayName = "IamContext";
 
 // Storage keys for tenant persistence
 const STORAGE_ORG_KEY = "hanzo_iam_current_org";
@@ -139,7 +139,7 @@ export function IamProvider(props: IamProviderProps) {
     [config.serverUrl, config.clientId, config.redirectUri],
   );
 
-  const [user, setUser] = useState<IamUser | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(autoInit);
   const [accessToken, setAccessToken] = useState<string | null>(
@@ -204,7 +204,7 @@ export function IamProvider(props: IamProviderProps) {
           setIsAuthenticated(true);
           try {
             const info = await sdk.getUserInfo();
-            if (!cancelled) setUser(info as unknown as IamUser);
+            if (!cancelled) setUser(info as unknown as User);
           } catch {
             // Token valid but userinfo failed — still authenticated
           }
@@ -244,7 +244,7 @@ export function IamProvider(props: IamProviderProps) {
       setIsAuthenticated(true);
       try {
         const info = await sdk.getUserInfo();
-        setUser(info as unknown as IamUser);
+        setUser(info as unknown as User);
       } catch {
         // ok — token valid, userinfo is optional
       }
@@ -370,7 +370,7 @@ export function useIam(): IamContextValue {
  */
 export function useOrganizations(): OrgState {
   const { isAuthenticated, accessToken } = useIam();
-  const [organizations, setOrganizations] = useState<IamOrganization[]>([]);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
 
   const [currentOrgId, setCurrentOrgId] = useState<string | null>(() => {
     try {
@@ -405,7 +405,7 @@ export function useOrganizations(): OrgState {
       const owner = (payload.owner as string) || "";
       const primaryOrg = owner || (sub.includes("/") ? sub.split("/")[0] : "");
       if (primaryOrg) {
-        const syntheticOrg: IamOrganization = {
+        const syntheticOrg: Organization = {
           owner: "admin",
           name: primaryOrg,
           displayName: primaryOrg,
@@ -426,8 +426,8 @@ export function useOrganizations(): OrgState {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, accessToken]);
 
-  const projects: IamProject[] = [];
-  const currentProject: IamProject | null = null;
+  const projects: Project[] = [];
+  const currentProject: Project | null = null;
 
   const currentOrg = useMemo(
     () => organizations.find((o) => o.name === currentOrgId) ?? null,

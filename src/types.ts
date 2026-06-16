@@ -18,9 +18,14 @@ export type Config = {
   orgName?: string;
   /** Application name. */
   appName?: string;
+  /**
+   * When true, JWT validation skips the audience check entirely. Use
+   * only for IAM deployments that issue access tokens without an `aud`
+   * claim. Default false — `aud` must equal `clientId` or validation
+   * fails with `iam_audience_invalid`.
+   */
+  allowMissingAudience?: boolean;
 };
-/** @deprecated Use {@link Config} instead. */
-export type IamConfig = Config;
 
 // ---------------------------------------------------------------------------
 // OIDC
@@ -76,8 +81,6 @@ export type JwtClaims = {
   /** Arbitrary extra claims. */
   [key: string]: unknown;
 };
-/** @deprecated Use {@link JwtClaims} instead. */
-export type IamJwtClaims = JwtClaims;
 
 // ---------------------------------------------------------------------------
 // User
@@ -97,8 +100,6 @@ export type User = {
   createdTime?: string;
   signupApplication?: string;
 };
-/** @deprecated Use {@link User} instead. */
-export type IamUser = User;
 
 // ---------------------------------------------------------------------------
 // Organization
@@ -119,8 +120,6 @@ export type Organization = {
   balanceCredit?: number;
   balanceCurrency?: string;
 };
-/** @deprecated Use {@link Organization} instead. */
-export type IamOrganization = Organization;
 
 // ---------------------------------------------------------------------------
 // Billing (canonical types — backed by Commerce service)
@@ -225,15 +224,6 @@ export type UsageSummary = {
   completionTokens: number;
 };
 
-// Backwards-compatible aliases
-export type IamSubscription = Subscription;
-export type IamPlan = Plan;
-export type IamPricing = Pricing;
-export type IamPayment = Payment;
-export type IamOrder = Order;
-export type IamUsageRecord = UsageRecord;
-export type IamUsageSummary = UsageSummary;
-
 // ---------------------------------------------------------------------------
 // Project
 // ---------------------------------------------------------------------------
@@ -249,8 +239,6 @@ export type Project = {
   isDefault?: boolean;
   createdTime?: string;
 };
-/** @deprecated Use {@link Project} instead. */
-export type IamProject = Project;
 
 // ---------------------------------------------------------------------------
 // Auth result
@@ -270,8 +258,6 @@ export type AuthResult =
       ok: false;
       reason: string;
     };
-/** @deprecated Use {@link AuthResult} instead. */
-export type IamAuthResult = AuthResult;
 
 // ---------------------------------------------------------------------------
 // API response wrapper
@@ -283,5 +269,3 @@ export type ApiResponse<T> = {
   data?: T;
   data2?: unknown;
 };
-/** @deprecated Use {@link ApiResponse} instead. */
-export type IamApiResponse<T> = ApiResponse<T>;

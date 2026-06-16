@@ -1,11 +1,20 @@
 /**
  * JWT validation using jose library + OIDC JWKS discovery.
  *
- * Validates access/ID tokens issued by Hanzo IAM.
+ * Validates access/ID tokens issued by Hanzo IAM. The JWKS URI is taken
+ * from the live OIDC discovery document (which points at the canonical
+ * `/v1/iam/.well-known/jwks` endpoint); the issuer is verified.
+ *
+ * Audience is verified against `config.clientId` by default. A token
+ * whose `aud` does not match is REJECTED — unless the caller explicitly
+ * opts out with `allowMissingAudience: true` (for IAM deployments that
+ * issue access tokens without an `aud` claim). There is no silent
+ * fall-through.
  */
 
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
-import type { IamConfig, IamAuthResult, IamJwtClaims } from "./types.js";
+import type { Config, AuthResult, JwtClaims } from "./types.js";
+import { OIDC_PATHS, trimServerUrl } from "./paths.js";
 
 // ---------------------------------------------------------------------------
 // JWKS key set cache (per issuer)
@@ -36,7 +45,7 @@ const discoveryCache = new Map<string, CachedDiscovery>();
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
 async function resolveJwksUri(serverUrl: string): Promise<{ jwksUri: string; issuer: string }> {
-  const baseUrl = serverUrl.replace(/\/+$/, "");
+  const baseUrl = trimServerUrl(serverUrl);
   const cached = discoveryCache.get(baseUrl);
   if (cached && Date.now() - cached.fetchedAt < DISCOVERY_TTL_MS) {
     return { jwksUri: cached.jwksUri, issuer: cached.issuer };
@@ -45,7 +54,7 @@ async function resolveJwksUri(serverUrl: string): Promise<{ jwksUri: string; iss
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8_000);
   try {
-    const res = await fetch(`${baseUrl}/.well-known/openid-configuration`, {
+    const res = await fetch(`${baseUrl}${OIDC_PATHS.discovery}`, {
       signal: controller.signal,
       headers: { Accept: "application/json" },
     });
@@ -74,11 +83,17 @@ async function resolveJwksUri(serverUrl: string): Promise<{ jwksUri: string; iss
  *
  * Uses OIDC discovery to find the JWKS URI, then verifies the token
  * signature, issuer, audience, and expiry using the `jose` library.
+ *
+ * The audience MUST equal `config.clientId`. A mismatch fails with
+ * `iam_audience_invalid` unless `config.allowMissingAudience === true`,
+ * in which case the audience check is skipped entirely (for IAM
+ * deployments that issue access tokens without an `aud` claim). There is
+ * no automatic, silent retry.
  */
 export async function validateToken(
   token: string,
-  config: IamConfig,
-): Promise<IamAuthResult> {
+  config: Config,
+): Promise<AuthResult> {
   if (!token || typeof token !== "string") {
     return { ok: false, reason: "iam_token_missing" };
   }
@@ -99,32 +114,28 @@ export async function validateToken(
   try {
     const result = await jwtVerify(token, keySet, {
       issuer,
-      audience: config.clientId,
+      // Skip aud verification only when explicitly allowed; otherwise
+      // pin to the client id. No silent fall-through on mismatch.
+      ...(config.allowMissingAudience ? {} : { audience: config.clientId }),
       clockTolerance: 30, // 30s clock skew
     });
     payload = result.payload;
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("expired")) {
+    // Branch on jose's typed error codes, not message strings.
+    // jose v6: ERR_JWT_EXPIRED for `exp`; ERR_JWT_CLAIM_VALIDATION_FAILED
+    // with `claim === "aud"` for an audience mismatch.
+    const code = (err as { code?: string }).code;
+    const claim = (err as { claim?: string }).claim;
+    if (code === "ERR_JWT_EXPIRED") {
       return { ok: false, reason: "iam_token_expired" };
     }
-    if (message.includes("audience")) {
-      // Retry without audience check - some IAM configs don't set aud
-      try {
-        const result = await jwtVerify(token, keySet, {
-          issuer,
-          clockTolerance: 30,
-        });
-        payload = result.payload;
-      } catch {
-        return { ok: false, reason: "iam_signature_invalid" };
-      }
-    } else {
-      return { ok: false, reason: "iam_signature_invalid" };
+    if (code === "ERR_JWT_CLAIM_VALIDATION_FAILED" && claim === "aud") {
+      return { ok: false, reason: "iam_audience_invalid" };
     }
+    return { ok: false, reason: "iam_signature_invalid" };
   }
 
-  const claims = payload as unknown as IamJwtClaims;
+  const claims = payload as unknown as JwtClaims;
 
   // Hanzo IAM tokens may use owner/name instead of sub claim
   const sub =

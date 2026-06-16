@@ -1,20 +1,28 @@
 /**
- * BetterAuth SSO provider configuration for IAM.
+ * better-auth `genericOAuth` provider configuration for Hanzo IAM.
  *
- * Returns a provider config object compatible with BetterAuth's
- * `socialProviders` or generic OAuth plugin.
+ * Returns ONE config entry to drop into better-auth's `genericOAuth`
+ * plugin. The endpoints are pinned to the canonical IAM OIDC paths
+ * (`OIDC_PATHS`) — no `discoveryUrl`, because IAM serves a 200 HTML SPA
+ * catch-all for unregistered paths and a discovery round-trip must never
+ * be allowed to resolve to the wrong path.
  *
  * @example
  * ```ts
  * import { betterAuth } from "better-auth";
+ * import { genericOAuth } from "better-auth/plugins";
  * import { iamProvider } from "@hanzo/iam/betterauth";
  *
  * export const auth = betterAuth({
- *   socialProviders: [
- *     iamProvider({
- *       serverUrl: process.env.IAM_ENDPOINT!,
- *       clientId: process.env.IAM_CLIENT_ID!,
- *       clientSecret: process.env.IAM_CLIENT_SECRET!,
+ *   plugins: [
+ *     genericOAuth({
+ *       config: [
+ *         iamProvider({
+ *           serverUrl: process.env.IAM_ENDPOINT!,      // e.g. https://iam.hanzo.ai
+ *           clientId: process.env.IAM_CLIENT_ID!,
+ *           clientSecret: process.env.IAM_CLIENT_SECRET!,
+ *         }),
+ *       ],
  *     }),
  *   ],
  * });
@@ -23,69 +31,49 @@
  * @packageDocumentation
  */
 
-import type { IamConfig } from "./types.js";
+import type { Config } from "./types.js";
+import { iamUrl } from "./paths.js";
 
-export interface IamSocialProvider {
-  id: string;
-  name: string;
-  type: "oidc";
-  issuer: string;
+/**
+ * A single `genericOAuth` provider config entry, as consumed by
+ * better-auth's `genericOAuth({ config: [...] })` plugin.
+ */
+export interface IamGenericOAuthConfig {
+  /** Provider id better-auth routes by. `"hanzo"` for all Hanzo IAM brands. */
+  providerId: string;
+  /** Authorization endpoint URL. */
+  authorizationUrl: string;
+  /** Token endpoint URL. */
+  tokenUrl: string;
+  /** UserInfo endpoint URL. */
+  userInfoUrl: string;
+  /** OAuth2 client id. */
   clientId: string;
+  /** OAuth2 client secret (confidential client). */
   clientSecret?: string;
-  authorization: { url: string; params: { scope: string } };
-  token: { url: string };
-  userinfo: { url: string };
-  profile: (profile: Record<string, unknown>) => {
-    id: string;
-    name: string;
-    email: string;
-    image: string | null;
-  };
+  /** Requested scopes. */
+  scopes: string[];
+  /** Enable PKCE (S256). Always true. */
+  pkce: true;
+  /** Client authentication method at the token endpoint. */
+  authentication: "basic";
 }
 
 /**
- * Create a BetterAuth-compatible social provider for IAM.
+ * Create a better-auth `genericOAuth` config entry for Hanzo IAM.
  *
- * Works with BetterAuth's SSO plugin or generic OAuth integration.
- * Uses standard OIDC endpoints.
+ * Pass the result inside `genericOAuth({ config: [iamProvider(...)] })`.
  */
-export function iamProvider(
-  config: IamConfig & { redirectUri?: string },
-): IamSocialProvider {
-  const baseUrl = config.serverUrl.replace(/\/+$/, "");
-
+export function iamProvider(config: Config): IamGenericOAuthConfig {
   return {
-    id: "iam",
-    name: "IAM",
-    type: "oidc",
-    issuer: baseUrl,
+    providerId: "hanzo",
+    authorizationUrl: iamUrl(config.serverUrl, "authorize"),
+    tokenUrl: iamUrl(config.serverUrl, "token"),
+    userInfoUrl: iamUrl(config.serverUrl, "userinfo"),
     clientId: config.clientId,
     clientSecret: config.clientSecret,
-    authorization: {
-      url: `${baseUrl}/oauth/authorize`,
-      params: { scope: "openid profile email" },
-    },
-    token: { url: `${baseUrl}/oauth/token` },
-    userinfo: { url: `${baseUrl}/oauth/userinfo` },
-    profile(profile: Record<string, unknown>) {
-      return {
-        id: (profile.sub as string) ?? (profile.id as string) ?? "",
-        name:
-          (profile.displayName as string) ??
-          (profile.name as string) ??
-          (profile.preferred_username as string) ??
-          "",
-        email: (profile.email as string) ?? "",
-        image: (profile.avatar as string) ?? (profile.picture as string) ?? null,
-      };
-    },
+    scopes: ["openid", "profile", "email"],
+    pkce: true,
+    authentication: "basic",
   };
 }
-
-// Backwards-compatible aliases
-/** @deprecated Use iamProvider instead */
-export { iamProvider as hanzoIamProvider };
-/** @deprecated Use iamProvider instead */
-export { iamProvider as hanzoIamSocialProvider };
-/** @deprecated Use IamSocialProvider instead */
-export type { IamSocialProvider as HanzoIamSocialProvider };

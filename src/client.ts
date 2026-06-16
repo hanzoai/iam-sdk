@@ -17,11 +17,12 @@
  */
 
 import type {
-  IamConfig,
-  IamUser,
+  Config,
+  User,
   OidcDiscovery,
   TokenResponse,
 } from "./types.js";
+import { OIDC_PATHS } from "./paths.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -33,7 +34,7 @@ export class IamClient {
   private readonly appName: string | undefined;
   private discoveryCache: { data: OidcDiscovery; fetchedAt: number } | null = null;
 
-  constructor(config: IamConfig) {
+  constructor(config: Config) {
     this.baseUrl = config.serverUrl.replace(/\/+$/, "");
     this.clientId = config.clientId;
     this.clientSecret = config.clientSecret;
@@ -116,9 +117,7 @@ export class IamClient {
     if (this.discoveryCache && Date.now() - this.discoveryCache.fetchedAt < CACHE_TTL_MS) {
       return this.discoveryCache.data;
     }
-    const data = await this.request<OidcDiscovery>(
-      "/.well-known/openid-configuration",
-    );
+    const data = await this.request<OidcDiscovery>(OIDC_PATHS.discovery);
     this.discoveryCache = { data, fetchedAt: Date.now() };
     return data;
   }
@@ -271,7 +270,7 @@ export class IamClient {
   // -----------------------------------------------------------------------
 
   /** Fetch user claims from the OIDC userinfo endpoint (OIDC core §5.3). */
-  async getUserInfo(accessToken: string): Promise<IamUser> {
+  async getUserInfo(accessToken: string): Promise<User> {
     const discovery = await this.getDiscovery();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -283,7 +282,7 @@ export class IamClient {
       if (!res.ok) {
         throw new IamApiError(res.status, "Failed to fetch userinfo");
       }
-      return (await res.json()) as IamUser;
+      return (await res.json()) as User;
     } finally {
       clearTimeout(timer);
     }
