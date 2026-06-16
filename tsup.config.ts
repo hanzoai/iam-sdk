@@ -25,11 +25,13 @@ const optionalPeers = [
 export default defineConfig({
   entry: [
     'src/index.ts',
+    'src/paths.ts',
     'src/auth.ts',
     'src/browser.ts',
-    'src/billing.ts',
+    'src/server.ts',
     'src/types.ts',
     'src/react.ts',
+    'src/views.tsx',
     'src/nextauth.ts',
     'src/passport.ts',
     'src/betterauth.ts',

@@ -23,6 +23,8 @@
  * @packageDocumentation
  */
 
+import { OIDC_PATHS, trimServerUrl } from "./paths.js";
+
 export interface IamProfile extends Record<string, unknown> {
   sub: string;
   name: string;
@@ -37,11 +39,13 @@ export interface IamProfile extends Record<string, unknown> {
 /**
  * NextAuth.js / Auth.js compatible OAuth provider for IAM.
  *
- * Uses standard OIDC well-known endpoint for automatic configuration.
- * JWT id_token validation (issuer, audience, signature) is handled by
- * openid-client using the JWKS published at `{serverUrl}/.well-known/jwks`.
+ * Uses the standard OIDC well-known endpoint (`OIDC_PATHS.discovery`) for
+ * automatic configuration. JWT id_token validation (issuer, audience,
+ * signature) is handled by openid-client using the JWKS published at the
+ * canonical `{serverUrl}/v1/iam/.well-known/jwks` endpoint (resolved from
+ * discovery — never hard-coded to a wrong path).
  *
- * Pass `checks: ["state", "pkce"]` in options for PKCE alignment.
+ * PKCE (S256) is on by default: `checks` defaults to `["state", "pkce"]`.
  */
 export function IamProvider<P extends IamProfile>(
   options: {
@@ -50,19 +54,19 @@ export function IamProvider<P extends IamProfile>(
     clientSecret?: string;
     orgName?: string;
     appName?: string;
-    /** OAuth state/PKCE checks. Default: ["state"]. Add "pkce" for extra security. */
+    /** OAuth state/PKCE checks. Default: ["state", "pkce"]. */
     checks?: ("state" | "pkce" | "nonce" | "none")[];
     [key: string]: unknown;
   },
 ): Record<string, unknown> {
-  const issuer = options.serverUrl.replace(/\/$/, "");
-  const checks = options.checks ?? ["state"];
+  const issuer = trimServerUrl(options.serverUrl);
+  const checks = options.checks ?? ["state", "pkce"];
 
   return {
     id: "iam",
     name: "IAM",
     type: "oauth",
-    wellKnown: `${issuer}/.well-known/openid-configuration`,
+    wellKnown: `${issuer}${OIDC_PATHS.discovery}`,
     idToken: true,
     checks,
     authorization: { params: { scope: "openid profile email" } },
@@ -87,9 +91,3 @@ export function IamProvider<P extends IamProfile>(
     options,
   };
 }
-
-// Backwards-compatible aliases
-/** @deprecated Use IamProvider instead */
-export { IamProvider as HanzoIamProvider };
-/** @deprecated Use IamProfile instead */
-export type { IamProfile as HanzoIamProfile };

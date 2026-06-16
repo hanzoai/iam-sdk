@@ -6,17 +6,23 @@
  * `/get-phone-user`, etc.). Apps drive a single redirect-to-authorize
  * flow; the IAM server owns every credential interaction.
  *
- *   IAM#signinRedirect()    — start PKCE redirect to /oauth/authorize
- *   IAM#handleCallback()    — exchange code at /oauth/token
+ *   IAM#signinRedirect()    — start PKCE redirect to the authorize endpoint
+ *   IAM#handleCallback()    — exchange code at the token endpoint
  *   IAM#refreshAccessToken()— refresh grant
  *   IAM#signinPopup()       — same flow in a popup window
  *   IAM#signinSilent()      — prompt=none iframe attempt
- *   IAM#getUserInfo()       — /oauth/userinfo
- *   IAM#logout()            — RP-initiated logout (/oauth/logout)
+ *   IAM#getUserInfo()       — userinfo endpoint
+ *   IAM#logout()            — RP-initiated logout
+ *
+ * Every endpoint resolves through `OIDC_PATHS` (see ./paths). Live OIDC
+ * discovery is preferred when reachable; the hard-coded fallback uses
+ * the exact same canonical paths so a CORS/network failure degrades to
+ * correct URLs, never to the IAM HTML SPA catch-all.
  */
 
-import type { IamConfig, TokenResponse, OidcDiscovery } from "./types.js";
+import type { Config, TokenResponse, OidcDiscovery } from "./types.js";
 import { generatePKCEChallenge, generateState } from "./pkce.js";
+import { OIDC_PATHS, iamUrl, trimServerUrl } from "./paths.js";
 
 // ---------------------------------------------------------------------------
 // Storage keys
@@ -34,7 +40,7 @@ const KEY_EXPIRES_AT = `${STORAGE_PREFIX}expires_at`;
 // Config
 // ---------------------------------------------------------------------------
 
-export type IAMConfig = IamConfig & {
+export type IAMConfig = Config & {
   /** OAuth2 redirect URI (e.g. "https://app.hanzo.bot/auth/callback"). */
   redirectUri: string;
   /** OAuth2 scopes (default: "openid profile email"). */
@@ -43,9 +49,9 @@ export type IAMConfig = IamConfig & {
   storage?: Storage;
   /**
    * Optional proxy base URL for the token + userinfo endpoints.
-   * When set, token exchange POSTs hit `${proxyBaseUrl}/oauth/token`
-   * and userinfo GETs hit `${proxyBaseUrl}/oauth/userinfo` instead of
-   * the IAM origin directly. Use this to keep cross-origin requests
+   * When set, token exchange POSTs hit `${proxyBaseUrl}/v1/iam/oauth/token`
+   * and userinfo GETs hit `${proxyBaseUrl}/v1/iam/oauth/userinfo` instead
+   * of the IAM origin directly. Use this to keep cross-origin requests
    * off the browser (gateway proxies same-origin to IAM).
    */
   proxyBaseUrl?: string;
@@ -72,13 +78,15 @@ export class IAM {
   private async getDiscovery(): Promise<OidcDiscovery> {
     if (this.discoveryCache) return this.discoveryCache;
 
-    const baseUrl = this.config.serverUrl.replace(/\/+$/, "");
+    const baseUrl = trimServerUrl(this.config.serverUrl);
 
-    // Try fetching the OIDC discovery document. If it fails (e.g. due to
-    // CORS when the IAM server doesn't send Access-Control-Allow-Origin),
-    // construct a fallback from well-known endpoint paths.
+    // Prefer live OIDC discovery. If it fails (e.g. CORS when the IAM
+    // server doesn't send Access-Control-Allow-Origin), construct a
+    // fallback from the canonical OIDC_PATHS — the SAME paths discovery
+    // would return, so a failed round-trip degrades to correct URLs,
+    // never to the IAM HTML SPA catch-all.
     try {
-      const res = await fetch(`${baseUrl}/.well-known/openid-configuration`, {
+      const res = await fetch(`${baseUrl}${OIDC_PATHS.discovery}`, {
         headers: { Accept: "application/json" },
       });
       if (res.ok) {
@@ -91,10 +99,10 @@ export class IAM {
 
     this.discoveryCache = {
       issuer: baseUrl,
-      authorization_endpoint: `${baseUrl}/oauth/authorize`,
-      token_endpoint: `${baseUrl}/oauth/token`,
-      userinfo_endpoint: `${baseUrl}/oauth/userinfo`,
-      jwks_uri: `${baseUrl}/.well-known/jwks`,
+      authorization_endpoint: iamUrl(baseUrl, "authorize"),
+      token_endpoint: iamUrl(baseUrl, "token"),
+      userinfo_endpoint: iamUrl(baseUrl, "userinfo"),
+      jwks_uri: iamUrl(baseUrl, "jwks"),
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       scopes_supported: ["openid", "email", "profile"],
@@ -108,7 +116,7 @@ export class IAM {
 
   private async tokenEndpoint(): Promise<string> {
     if (this.config.proxyBaseUrl) {
-      return `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/oauth/token`;
+      return iamUrl(this.config.proxyBaseUrl, "token");
     }
     const discovery = await this.getDiscovery();
     return discovery.token_endpoint;
@@ -116,7 +124,7 @@ export class IAM {
 
   private async userinfoEndpoint(): Promise<string> {
     if (this.config.proxyBaseUrl) {
-      return `${this.config.proxyBaseUrl.replace(/\/+$/, "")}/oauth/userinfo`;
+      return iamUrl(this.config.proxyBaseUrl, "userinfo");
     }
     const discovery = await this.getDiscovery();
     return discovery.userinfo_endpoint;
@@ -456,14 +464,13 @@ export class IAM {
   // -----------------------------------------------------------------------
 
   /**
-   * RP-initiated logout (OIDC). Best-effort POST to /oauth/logout to
-   * terminate the server-side session, then clears local tokens.
+   * RP-initiated logout (OIDC). Best-effort POST to the logout endpoint
+   * to terminate the server-side session, then clears local tokens.
    */
   async logout(): Promise<void> {
     const token = this.storage.getItem(KEY_ACCESS_TOKEN);
-    const baseUrl = this.config.serverUrl.replace(/\/+$/, "");
     try {
-      await fetch(`${baseUrl}/oauth/logout`, {
+      await fetch(iamUrl(this.config.serverUrl, "logout"), {
         method: "POST",
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
