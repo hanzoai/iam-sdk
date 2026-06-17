@@ -28,7 +28,6 @@ jobs:
 
       - name: Publish to npm
         run: |
-          echo "auth token length: ${#NODE_AUTH_TOKEN}"
           npm config set //registry.npmjs.org/:_authToken "${NODE_AUTH_TOKEN}"
           npm whoami
           npm publish --access public
