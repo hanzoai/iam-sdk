@@ -22,12 +22,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
 
       - run: pnpm install --no-frozen-lockfile
 
       - name: Publish to npm
         run: |
-          printf '//registry.npmjs.org/:_authToken=%s\n' "${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
-          pnpm publish --no-git-checks --access public
+          if [ -n "${NPM_TOKEN}" ]; then TOK="${NPM_TOKEN}"; elif [ -n "${NPM_AUTH_TOKEN}" ]; then TOK="${NPM_AUTH_TOKEN}"; else echo "::error::no npm token secret available"; exit 1; fi
+          echo "npm token resolved (len ${#TOK})"
+          printf '//registry.npmjs.org/:_authToken=%s\nregistry=https://registry.npmjs.org/\n' "${TOK}" > "$HOME/.npmrc"
+          npm whoami || echo "whoami failed (token may be granular/automation — proceeding)"
+          npm publish --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_AUTH_TOKEN: ${{ secrets.NPM_AUTH_TOKEN }}
