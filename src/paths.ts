@@ -45,6 +45,18 @@ export const IAM_PATHS = {
   authMethods: "/v1/iam/auth/methods",
   /** Onboarding state-machine base (steps append `/identity`, etc.). */
   onboarding: "/v1/iam/onboarding",
+  /**
+   * Casdoor credential-login endpoint the embedded `<Login>` views POST to.
+   * `type=code` (a client `redirectUri` is present) mints an authorization
+   * code returned in `data`; `type=login` establishes the session cookie.
+   * This is what the deployed IAM actually authenticates against — the OIDC
+   * token endpoint's password/OTP grants are NOT enabled per-client.
+   */
+  login: "/v1/iam/login",
+  /** Send an email/SMS verification code (passwordless login). */
+  sendCode: "/v1/iam/send-verification-code",
+  /** Account registration. */
+  signup: "/v1/iam/signup",
 } as const;
 
 export type IamPathKey = keyof typeof IAM_PATHS;
