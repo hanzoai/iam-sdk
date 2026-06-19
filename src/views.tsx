@@ -76,6 +76,13 @@ export interface FlowProps {
   redirectUri: string;
   /** The OIDC `state` param. Generate one per signinRedirect() call. */
   state: string;
+  /**
+   * IAM organization the app belongs to (e.g. 'hanzo'). Required for the
+   * credential (password / verification-code) login flow.
+   */
+  organization?: string;
+  /** IAM application name. Defaults to `clientId` (they match for Hanzo apps). */
+  application?: string;
 }
 
 function makeIam(props: FlowProps): IAM {
@@ -84,6 +91,109 @@ function makeIam(props: FlowProps): IAM {
     clientId: props.clientId,
     redirectUri: props.redirectUri,
   });
+}
+
+/**
+ * Drive IAM's Casdoor credential-login (`IAM_PATHS.login`). The deployed
+ * IAM authenticates here — NOT via the OIDC token endpoint's password/OTP
+ * grants (those are not enabled per-client). `type=code` (a `redirectUri`
+ * is present) returns an authorization code in `data`; we hand back a
+ * fully-formed redirect to the app's callback, which exchanges it at the
+ * token endpoint. Stays on the app's own origin until that same-site hop.
+ */
+async function credentialLogin(
+  props: FlowProps,
+  body: Record<string, unknown>,
+): Promise<{ redirectUrl?: string; token?: string; error?: string }> {
+  const type = props.redirectUri ? "code" : "login";
+  const url = new URL(`${trimServerUrl(props.serverUrl)}${IAM_PATHS.login}`);
+  url.searchParams.set("clientId", props.clientId);
+  url.searchParams.set("responseType", "code");
+  if (props.redirectUri) url.searchParams.set("redirectUri", props.redirectUri);
+  url.searchParams.set("scope", "openid profile email");
+  if (props.state) url.searchParams.set("state", props.state);
+  url.searchParams.set("type", type);
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        type,
+        application: props.application ?? props.clientId,
+        organization: props.organization,
+        autoSignin: true,
+        ...body,
+      }),
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = (await res.json()) as Record<string, unknown>;
+  } catch {
+    return { error: `sign-in failed (${res.status})` };
+  }
+  if (!res.ok || parsed.status === "error") {
+    return { error: typeof parsed.msg === "string" ? parsed.msg : `sign-in failed (${res.status})` };
+  }
+  const data = parsed.data;
+  if (props.redirectUri && typeof data === "string" && data.length > 0) {
+    const sep = props.redirectUri.includes("?") ? "&" : "?";
+    return {
+      redirectUrl: `${props.redirectUri}${sep}code=${encodeURIComponent(data)}&state=${encodeURIComponent(props.state ?? "")}`,
+    };
+  }
+  const d = (typeof data === "object" && data ? data : parsed) as Record<string, unknown>;
+  return { token: typeof d.access_token === "string" ? d.access_token : undefined };
+}
+
+/** Send a passwordless verification code via `IAM_PATHS.sendCode`. */
+async function sendVerificationCode(
+  props: FlowProps,
+  dest: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const isEmail = dest.includes("@");
+  const url = new URL(`${trimServerUrl(props.serverUrl)}${IAM_PATHS.sendCode}`);
+  url.searchParams.set("clientId", props.clientId);
+  if (props.organization) url.searchParams.set("organization", props.organization);
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        applicationId: `admin/${props.application ?? props.clientId}`,
+        organization: props.organization,
+        dest,
+        type: isEmail ? "email" : "phone",
+        method: "login",
+        checkUser: dest,
+      }),
+    });
+    const parsed = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok || parsed.status === "error") {
+      return { ok: false, error: typeof parsed.msg === "string" ? parsed.msg : `HTTP ${res.status}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Complete a credential result: redirect to the app callback, or report the token. */
+function finishCredential(
+  r: { redirectUrl?: string; token?: string; error?: string },
+  onSuccess?: (token: string) => void,
+): string | null {
+  if (r.error) return r.error;
+  if (r.redirectUrl) {
+    if (typeof window !== "undefined") window.location.href = r.redirectUrl;
+    return null;
+  }
+  if (r.token) onSuccess?.(r.token);
+  return null;
 }
 
 // ============================================================
@@ -178,6 +288,13 @@ export interface LoginProps extends FlowProps {
   className?: string;
   /** Called after a successful credential sign-in (pre-redirect). */
   onSuccess?: (token: string) => void;
+  /**
+   * Social/wallet providers to render as buttons (e.g. ['google','github','apple']).
+   * Each starts the PKCE redirect with that provider. Defaults to none — the
+   * `/v1/iam/auth/methods` discovery endpoint is not relied upon (it is not
+   * deployed), so providers are passed explicitly per app.
+   */
+  providers?: string[];
 }
 
 export interface SocialButtonProps extends FlowProps {
@@ -256,24 +373,16 @@ export const EmailPasswordForm: ComponentType<EmailPasswordFormProps> = (props) 
       setBusy(true);
       setError(null);
       try {
-        const body = new URLSearchParams({
-          grant_type: "password",
-          client_id: props.clientId,
+        const r = await credentialLogin(props, {
           username: email,
           password,
-          scope: "openid profile email",
+          signinMethod: "Password",
         });
-        const res = await fetch(iamUrl(props.serverUrl, "token"), {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-          body: body.toString(),
-        });
-        if (!res.ok) {
-          const text = await res.text().catch(() => "");
-          throw new Error(text || `sign-in failed (${res.status})`);
+        const msg = finishCredential(r, props.onSuccess);
+        if (msg) {
+          setError(msg);
+          props.onError?.(new Error(msg));
         }
-        const tokens = (await res.json()) as { access_token: string };
-        props.onSuccess?.(tokens.access_token);
       } catch (err) {
         const e2 = err instanceof Error ? err : new Error(String(err));
         setError(e2.message);
@@ -282,7 +391,7 @@ export const EmailPasswordForm: ComponentType<EmailPasswordFormProps> = (props) 
         setBusy(false);
       }
     },
-    [email, password, props.serverUrl, props.clientId],
+    [email, password, props.serverUrl, props.clientId, props.redirectUri, props.state, props.organization, props.application],
   );
 
   return h(
@@ -323,19 +432,18 @@ export const OTPStep: ComponentType<OTPStepProps> = (props) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const grant = props.channel === "email" ? "email_otp" : "sms_otp";
-
   const send = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`${iamUrl(props.serverUrl, "authorize").replace("/authorize", "/otp/send")}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ channel: props.channel, destination, client_id: props.clientId }),
-      });
-      if (!res.ok) throw new Error(`could not send code (${res.status})`);
-      setSent(true);
+      const r = await sendVerificationCode(props, destination);
+      if (r.ok) {
+        setSent(true);
+      } else {
+        const e2 = new Error(r.error ?? "could not send code");
+        setError(e2.message);
+        props.onError?.(e2);
+      }
     } catch (err) {
       const e2 = err instanceof Error ? err : new Error(String(err));
       setError(e2.message);
@@ -343,7 +451,7 @@ export const OTPStep: ComponentType<OTPStepProps> = (props) => {
     } finally {
       setBusy(false);
     }
-  }, [destination, props.channel, props.serverUrl, props.clientId]);
+  }, [destination, props.channel, props.serverUrl, props.clientId, props.organization, props.application]);
 
   const verify = useCallback(
     async (e: FormEvent) => {
@@ -351,21 +459,18 @@ export const OTPStep: ComponentType<OTPStepProps> = (props) => {
       setBusy(true);
       setError(null);
       try {
-        const body = new URLSearchParams({
-          grant_type: grant,
-          client_id: props.clientId,
+        const isEmail = destination.includes("@");
+        const r = await credentialLogin(props, {
           username: destination,
-          password: code,
-          scope: "openid profile email",
+          code,
+          signinMethod: "Verification code",
+          ...(isEmail ? { email: destination } : { phone: destination }),
         });
-        const res = await fetch(iamUrl(props.serverUrl, "token"), {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-          body: body.toString(),
-        });
-        if (!res.ok) throw new Error(`code rejected (${res.status})`);
-        const tokens = (await res.json()) as { access_token: string };
-        props.onSuccess?.(tokens.access_token);
+        const msg = finishCredential(r, props.onSuccess);
+        if (msg) {
+          setError(msg);
+          props.onError?.(new Error(msg));
+        }
       } catch (err) {
         const e2 = err instanceof Error ? err : new Error(String(err));
         setError(e2.message);
@@ -374,7 +479,7 @@ export const OTPStep: ComponentType<OTPStepProps> = (props) => {
         setBusy(false);
       }
     },
-    [grant, destination, code, props.serverUrl, props.clientId],
+    [destination, code, props.serverUrl, props.clientId, props.redirectUri, props.state, props.organization, props.application],
   );
 
   return h(
@@ -417,17 +522,14 @@ export const OTPStep: ComponentType<OTPStepProps> = (props) => {
  * `brand`.
  */
 export const Login: ComponentType<LoginProps> = (props) => {
-  const methods = useAuthMethods({ serverUrl: props.serverUrl });
   const flow: FlowProps = {
     serverUrl: props.serverUrl,
     clientId: props.clientId,
     redirectUri: props.redirectUri,
     state: props.state,
+    organization: props.organization,
+    application: props.application,
   };
-
-  if (methods.loading) {
-    return h("div", { className: props.className ?? "hanzo-iam-card" }, "Loading…");
-  }
 
   const socialLabel: Record<string, string | undefined> = {
     google: props.labels?.googleSocial,
@@ -437,24 +539,22 @@ export const Login: ComponentType<LoginProps> = (props) => {
 
   const children: ReactNode[] = [];
   if (props.brand) children.push(h("div", { key: "brand", className: "hanzo-iam-brand" }, props.brand));
-  if (methods.error) children.push(h("p", { key: "err", role: "alert", className: "hanzo-iam-error" }, methods.error.message));
 
-  if (methods.has("wallet")) {
-    children.push(h(WalletButton, { key: "wallet", ...flow, label: props.labels?.wallet }));
+  // Social/wallet providers (explicit per app; PKCE redirect).
+  for (const provider of props.providers ?? []) {
+    if (provider === "wallet") {
+      children.push(h(WalletButton, { key: "wallet", ...flow, label: props.labels?.wallet }));
+    } else {
+      children.push(h(SocialButton, { key: `social-${provider}`, ...flow, provider, label: socialLabel[provider] }));
+    }
   }
-  for (const provider of methods.providers()) {
-    children.push(h(SocialButton, { key: `social-${provider}`, ...flow, provider, label: socialLabel[provider] }));
-  }
-  if (methods.has("email_otp")) {
-    children.push(h(OTPStep, { key: "email-otp", ...flow, channel: "email", label: props.labels?.emailOtp, onSuccess: props.onSuccess }));
-  }
-  if (methods.has("sms_otp")) {
-    children.push(h(OTPStep, { key: "sms-otp", ...flow, channel: "sms", label: props.labels?.smsOtp, onSuccess: props.onSuccess }));
-  }
-  if (methods.has("password")) {
-    children.push(h("div", { key: "divider", className: "hanzo-iam-divider" }, props.labels?.divider ?? "or"));
-    children.push(h(EmailPasswordForm, { key: "password", ...flow, onSuccess: props.onSuccess }));
-  }
+
+  // Password (always) — IAM credential login.
+  children.push(h(EmailPasswordForm, { key: "password", ...flow, onSuccess: props.onSuccess }));
+
+  // Passwordless email code.
+  children.push(h("div", { key: "divider", className: "hanzo-iam-divider" }, props.labels?.divider ?? "or"));
+  children.push(h(OTPStep, { key: "email-otp", ...flow, channel: "email", label: props.labels?.emailOtp, onSuccess: props.onSuccess }));
 
   return h("div", { className: props.className ?? "hanzo-iam-card" }, ...children);
 };
