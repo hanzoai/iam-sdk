@@ -45,7 +45,7 @@ import {
 } from "react";
 
 import { IAM } from "./browser.js";
-import { IAM_PATHS, iamUrl, trimServerUrl } from "./paths.js";
+import { IAM_PATHS, trimServerUrl } from "./paths.js";
 
 // ============================================================
 // types
@@ -90,110 +90,9 @@ function makeIam(props: FlowProps): IAM {
     serverUrl: props.serverUrl,
     clientId: props.clientId,
     redirectUri: props.redirectUri,
+    organization: props.organization,
+    application: props.application,
   });
-}
-
-/**
- * Drive IAM's Casdoor credential-login (`IAM_PATHS.login`). The deployed
- * IAM authenticates here — NOT via the OIDC token endpoint's password/OTP
- * grants (those are not enabled per-client). `type=code` (a `redirectUri`
- * is present) returns an authorization code in `data`; we hand back a
- * fully-formed redirect to the app's callback, which exchanges it at the
- * token endpoint. Stays on the app's own origin until that same-site hop.
- */
-async function credentialLogin(
-  props: FlowProps,
-  body: Record<string, unknown>,
-): Promise<{ redirectUrl?: string; token?: string; error?: string }> {
-  const type = props.redirectUri ? "code" : "login";
-  const url = new URL(`${trimServerUrl(props.serverUrl)}${IAM_PATHS.login}`);
-  url.searchParams.set("clientId", props.clientId);
-  url.searchParams.set("responseType", "code");
-  if (props.redirectUri) url.searchParams.set("redirectUri", props.redirectUri);
-  url.searchParams.set("scope", "openid profile email");
-  if (props.state) url.searchParams.set("state", props.state);
-  url.searchParams.set("type", type);
-  let res: Response;
-  try {
-    res = await fetch(url.toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        type,
-        application: props.application ?? props.clientId,
-        organization: props.organization,
-        autoSignin: true,
-        ...body,
-      }),
-    });
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
-  }
-  let parsed: Record<string, unknown> = {};
-  try {
-    parsed = (await res.json()) as Record<string, unknown>;
-  } catch {
-    return { error: `sign-in failed (${res.status})` };
-  }
-  if (!res.ok || parsed.status === "error") {
-    return { error: typeof parsed.msg === "string" ? parsed.msg : `sign-in failed (${res.status})` };
-  }
-  const data = parsed.data;
-  if (props.redirectUri && typeof data === "string" && data.length > 0) {
-    const sep = props.redirectUri.includes("?") ? "&" : "?";
-    return {
-      redirectUrl: `${props.redirectUri}${sep}code=${encodeURIComponent(data)}&state=${encodeURIComponent(props.state ?? "")}`,
-    };
-  }
-  const d = (typeof data === "object" && data ? data : parsed) as Record<string, unknown>;
-  return { token: typeof d.access_token === "string" ? d.access_token : undefined };
-}
-
-/** Send a passwordless verification code via `IAM_PATHS.sendCode`. */
-async function sendVerificationCode(
-  props: FlowProps,
-  dest: string,
-): Promise<{ ok: boolean; error?: string }> {
-  const isEmail = dest.includes("@");
-  const url = new URL(`${trimServerUrl(props.serverUrl)}${IAM_PATHS.sendCode}`);
-  url.searchParams.set("clientId", props.clientId);
-  if (props.organization) url.searchParams.set("organization", props.organization);
-  try {
-    const res = await fetch(url.toString(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({
-        applicationId: `admin/${props.application ?? props.clientId}`,
-        organization: props.organization,
-        dest,
-        type: isEmail ? "email" : "phone",
-        method: "login",
-        checkUser: dest,
-      }),
-    });
-    const parsed = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!res.ok || parsed.status === "error") {
-      return { ok: false, error: typeof parsed.msg === "string" ? parsed.msg : `HTTP ${res.status}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-/** Complete a credential result: redirect to the app callback, or report the token. */
-function finishCredential(
-  r: { redirectUrl?: string; token?: string; error?: string },
-  onSuccess?: (token: string) => void,
-): string | null {
-  if (r.error) return r.error;
-  if (r.redirectUrl) {
-    if (typeof window !== "undefined") window.location.href = r.redirectUrl;
-    return null;
-  }
-  if (r.token) onSuccess?.(r.token);
-  return null;
 }
 
 // ============================================================
@@ -373,16 +272,9 @@ export const EmailPasswordForm: ComponentType<EmailPasswordFormProps> = (props) 
       setBusy(true);
       setError(null);
       try {
-        const r = await credentialLogin(props, {
-          username: email,
-          password,
-          signinMethod: "Password",
-        });
-        const msg = finishCredential(r, props.onSuccess);
-        if (msg) {
-          setError(msg);
-          props.onError?.(new Error(msg));
-        }
+        // Mints a PKCE-bound code, then navigates to the app callback which
+        // completes the standard RFC 7636 exchange via handleCallback().
+        window.location.href = await makeIam(props).loginWithPassword(email, password);
       } catch (err) {
         const e2 = err instanceof Error ? err : new Error(String(err));
         setError(e2.message);
@@ -436,14 +328,8 @@ export const OTPStep: ComponentType<OTPStepProps> = (props) => {
     setBusy(true);
     setError(null);
     try {
-      const r = await sendVerificationCode(props, destination);
-      if (r.ok) {
-        setSent(true);
-      } else {
-        const e2 = new Error(r.error ?? "could not send code");
-        setError(e2.message);
-        props.onError?.(e2);
-      }
+      await makeIam(props).sendLoginCode(destination);
+      setSent(true);
     } catch (err) {
       const e2 = err instanceof Error ? err : new Error(String(err));
       setError(e2.message);
@@ -459,18 +345,7 @@ export const OTPStep: ComponentType<OTPStepProps> = (props) => {
       setBusy(true);
       setError(null);
       try {
-        const isEmail = destination.includes("@");
-        const r = await credentialLogin(props, {
-          username: destination,
-          code,
-          signinMethod: "Verification code",
-          ...(isEmail ? { email: destination } : { phone: destination }),
-        });
-        const msg = finishCredential(r, props.onSuccess);
-        if (msg) {
-          setError(msg);
-          props.onError?.(new Error(msg));
-        }
+        window.location.href = await makeIam(props).loginWithCode(destination, code);
       } catch (err) {
         const e2 = err instanceof Error ? err : new Error(String(err));
         setError(e2.message);
