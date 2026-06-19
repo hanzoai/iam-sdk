@@ -217,10 +217,12 @@ export class IAM {
       throw new Error("Missing authorization code in callback URL");
     }
 
+    // PKCE verifier is present for SDK-initiated (signinRedirect / social)
+    // flows. The embedded credential flow (`/v1/iam/login`, used by
+    // `@hanzo/iam/views`) mints the code WITHOUT PKCE, so a missing verifier
+    // is valid — exchange without it (the IAM accepts a non-PKCE code
+    // exchange for the same public client). State is still verified above.
     const codeVerifier = this.storage.getItem(KEY_CODE_VERIFIER);
-    if (!codeVerifier) {
-      throw new Error("Missing PKCE code verifier — was signinRedirect() called?");
-    }
 
     // One-shot — clean up state before the network call.
     this.storage.removeItem(KEY_STATE);
@@ -231,8 +233,8 @@ export class IAM {
       client_id: this.config.clientId,
       code,
       redirect_uri: this.config.redirectUri,
-      code_verifier: codeVerifier,
     });
+    if (codeVerifier) body.set("code_verifier", codeVerifier);
 
     const tokenUrl = await this.tokenEndpoint();
     const res = await fetch(tokenUrl, {
