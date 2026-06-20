@@ -1,13 +1,20 @@
 /**
  * Browser-side OAuth2/OIDC PKCE flow for Hanzo IAM.
  *
- * Pure standards: RFC 6749 (OAuth2), RFC 7636 (PKCE), OIDC core. No
- * Casdoor REST shortcuts (`/login`, `/signup`, `/send-verification-code`,
- * `/get-phone-user`, etc.). Apps drive a single redirect-to-authorize
- * flow; the IAM server owns every credential interaction.
+ * Standards core: RFC 6749 (OAuth2), RFC 7636 (PKCE), OIDC. The default
+ * flow is a single redirect-to-authorize where the IAM server owns the
+ * credential interaction. For first-party apps that render their OWN
+ * branded login on their own domain, the embedded credential methods
+ * (`loginWithPassword` / `loginWithCode`) collect the credential in-app and
+ * mint a PKCE-bound authorization code via the IAM login endpoint — the
+ * SAME RFC 7636 code+PKCE exchange completes it through `handleCallback`.
+ * (Not ROPC: no password ever hits the token endpoint.)
  *
  *   IAM#signinRedirect()    — start PKCE redirect to the authorize endpoint
- *   IAM#handleCallback()    — exchange code at the token endpoint
+ *   IAM#handleCallback()    — exchange code at the token endpoint (PKCE)
+ *   IAM#loginWithPassword() — first-party embedded login → PKCE-bound code
+ *   IAM#loginWithCode()     — embedded passwordless code login → PKCE code
+ *   IAM#sendLoginCode()     — send an email/SMS verification code
  *   IAM#refreshAccessToken()— refresh grant
  *   IAM#signinPopup()       — same flow in a popup window
  *   IAM#signinSilent()      — prompt=none iframe attempt
@@ -22,7 +29,7 @@
 
 import type { Config, TokenResponse, OidcDiscovery } from "./types.js";
 import { generatePKCEChallenge, generateState } from "./pkce.js";
-import { OIDC_PATHS, iamUrl, trimServerUrl } from "./paths.js";
+import { OIDC_PATHS, IAM_PATHS, iamUrl, trimServerUrl } from "./paths.js";
 
 // ---------------------------------------------------------------------------
 // Storage keys
@@ -55,6 +62,13 @@ export type IAMConfig = Config & {
    * off the browser (gateway proxies same-origin to IAM).
    */
   proxyBaseUrl?: string;
+  /**
+   * IAM organization (e.g. "hanzo"). Required only for the first-party
+   * embedded credential login (`loginWithPassword` / `loginWithCode`).
+   */
+  organization?: string;
+  /** IAM application name. Defaults to `clientId` (they match for Hanzo apps). */
+  application?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -187,6 +201,109 @@ export class IAM {
   }
 
   // -----------------------------------------------------------------------
+  // First-party embedded credential login (PKCE-bound, no IAM-hosted UI)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Generate + persist a PKCE verifier and state for an embedded credential
+   * login, returning the challenge to bind into the minted code. Uses the
+   * SAME storage keys as `signinRedirect`, so `handleCallback` completes the
+   * exact same RFC 7636 exchange regardless of how sign-in started.
+   */
+  private async beginCredential(): Promise<{ codeChallenge: string; state: string }> {
+    const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
+    const state = generateState();
+    this.storage.setItem(KEY_STATE, state);
+    this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
+    return { codeChallenge, state };
+  }
+
+  /**
+   * POST the IAM login endpoint with a PKCE `code_challenge` so the returned
+   * authorization code is challenge-bound. Returns the app-callback URL
+   * carrying `code` + `state`; the caller navigates there and
+   * `handleCallback()` performs the standard PKCE token exchange. Throws on
+   * an IAM error. No password ever reaches the token endpoint.
+   */
+  private async credentialLogin(fields: Record<string, unknown>): Promise<string> {
+    const { codeChallenge, state } = await this.beginCredential();
+    const base = this.config.proxyBaseUrl ?? this.config.serverUrl;
+    const url = new URL(`${trimServerUrl(base)}${IAM_PATHS.login}`);
+    url.searchParams.set("clientId", this.config.clientId);
+    url.searchParams.set("responseType", "code");
+    url.searchParams.set("redirectUri", this.config.redirectUri);
+    url.searchParams.set("scope", this.config.scope ?? "openid profile email");
+    url.searchParams.set("state", state);
+    url.searchParams.set("type", "code");
+    url.searchParams.set("code_challenge", codeChallenge);
+    url.searchParams.set("code_challenge_method", "S256");
+
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        type: "code",
+        application: this.config.application ?? this.config.clientId,
+        organization: this.config.organization,
+        autoSignin: true,
+        ...fields,
+      }),
+    });
+    const parsed = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok || parsed.status === "error") {
+      throw new Error(typeof parsed.msg === "string" ? parsed.msg : `sign-in failed (${res.status})`);
+    }
+    const code = parsed.data;
+    if (typeof code !== "string" || code.length === 0) {
+      throw new Error("IAM did not return an authorization code");
+    }
+    const sep = this.config.redirectUri.includes("?") ? "&" : "?";
+    return `${this.config.redirectUri}${sep}code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+  }
+
+  /** Embedded password login → returns the app-callback URL to navigate to. */
+  loginWithPassword(username: string, password: string): Promise<string> {
+    return this.credentialLogin({ username, password, signinMethod: "Password" });
+  }
+
+  /** Embedded passwordless code login → returns the app-callback URL. */
+  loginWithCode(destination: string, code: string): Promise<string> {
+    const isEmail = destination.includes("@");
+    return this.credentialLogin({
+      username: destination,
+      code,
+      signinMethod: "Verification code",
+      ...(isEmail ? { email: destination } : { phone: destination }),
+    });
+  }
+
+  /** Send a passwordless email/SMS verification code for `loginWithCode`. */
+  async sendLoginCode(destination: string): Promise<void> {
+    const isEmail = destination.includes("@");
+    const base = this.config.proxyBaseUrl ?? this.config.serverUrl;
+    const url = new URL(`${trimServerUrl(base)}${IAM_PATHS.sendCode}`);
+    url.searchParams.set("clientId", this.config.clientId);
+    if (this.config.organization) url.searchParams.set("organization", this.config.organization);
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        applicationId: `admin/${this.config.application ?? this.config.clientId}`,
+        organization: this.config.organization,
+        dest: destination,
+        type: isEmail ? "email" : "phone",
+        method: "login",
+        checkUser: destination,
+      }),
+    });
+    const parsed = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok || parsed.status === "error") {
+      throw new Error(typeof parsed.msg === "string" ? parsed.msg : `could not send code (${res.status})`);
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // Callback handling
   // -----------------------------------------------------------------------
 
@@ -219,7 +336,7 @@ export class IAM {
 
     const codeVerifier = this.storage.getItem(KEY_CODE_VERIFIER);
     if (!codeVerifier) {
-      throw new Error("Missing PKCE code verifier — was signinRedirect() called?");
+      throw new Error("Missing PKCE code verifier — start sign-in via signinRedirect() or the embedded credential login.");
     }
 
     // One-shot — clean up state before the network call.
