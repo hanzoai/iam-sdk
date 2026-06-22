@@ -22,6 +22,10 @@ let origin: string;
 let privateKey: CryptoKey;
 let publicJwk: JWK;
 let jwksHits = 0;
+// When true the JWKS serves the SAME key twice under one kid — a malformed but
+// real-world JWKS (identical cert collected from two owners). Exercises the
+// dedupe-by-kid fallback so a duplicate kid never hard-fails verification.
+let duplicateJwksKey = false;
 
 before(async () => {
   const kp = await generateKeyPair("RS256");
@@ -46,7 +50,8 @@ before(async () => {
     if (url.pathname === JWKS_PATH) {
       jwksHits++;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ keys: [publicJwk] }));
+      const keys = duplicateJwksKey ? [publicJwk, publicJwk] : [publicJwk];
+      res.end(JSON.stringify({ keys }));
       return;
     }
     res.statusCode = 404;
@@ -143,4 +148,35 @@ test("allowMissingAudience=true still verifies signature (tampered token fails)"
   const result = await validateToken(tampered, cfg({ allowMissingAudience: true }));
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.reason, "iam_signature_invalid");
+});
+
+test("duplicate kid in JWKS still verifies (dedupe-by-kid fallback)", async () => {
+  clearJwksCache();
+  duplicateJwksKey = true;
+  try {
+    const token = await mint({ aud: CLIENT_ID, email: "alice@acme.com", sub: "acme/alice" });
+    const result = await validateToken(token, cfg());
+    // Without the fallback jose throws JWKSMultipleMatchingKeys →
+    // iam_signature_invalid; with it the deduped local set verifies cleanly.
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.userId, "acme/alice");
+  } finally {
+    duplicateJwksKey = false;
+    clearJwksCache();
+  }
+});
+
+test("duplicate kid + tampered token still FAILS (dedupe is not a bypass)", async () => {
+  clearJwksCache();
+  duplicateJwksKey = true;
+  try {
+    const token = await mint({ aud: CLIENT_ID, sub: "acme/bob" });
+    const tampered = token.slice(0, -3) + "AAA";
+    const result = await validateToken(tampered, cfg());
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "iam_signature_invalid");
+  } finally {
+    duplicateJwksKey = false;
+    clearJwksCache();
+  }
 });
