@@ -12,7 +12,13 @@
  * fall-through.
  */
 
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import {
+  createLocalJWKSet,
+  createRemoteJWKSet,
+  jwtVerify,
+  type JSONWebKeySet,
+  type JWTPayload,
+} from "jose";
 import type { Config, AuthResult, JwtClaims } from "./types.js";
 import { OIDC_PATHS, trimServerUrl } from "./paths.js";
 
@@ -31,9 +37,42 @@ function getJwksKeySet(jwksUri: string): ReturnType<typeof createRemoteJWKSet> {
   return keySet;
 }
 
+// Fallback local key sets, deduped by kid. A spec-compliant JWKS has one key
+// per `kid` (RFC 7517 §4.5), but some issuers publish the SAME key twice under
+// one kid (e.g. an identical cert collected from a global + an org-scoped
+// owner). jose's remote set then can't pick one and throws
+// `JWKSMultipleMatchingKeys`, which would hard-fail verification of EVERY token
+// signed with that kid. We dedupe by kid and verify against a local set so a
+// malformed-but-harmless JWKS never breaks login. Cached per jwksUri.
+const localJwksSets = new Map<string, ReturnType<typeof createLocalJWKSet>>();
+
+async function getDedupedLocalKeySet(
+  jwksUri: string,
+): Promise<ReturnType<typeof createLocalJWKSet>> {
+  const cached = localJwksSets.get(jwksUri);
+  if (cached) return cached;
+
+  const res = await fetch(jwksUri, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`);
+  const jwks = (await res.json()) as JSONWebKeySet;
+
+  const seen = new Set<string>();
+  const keys = (jwks.keys ?? []).filter((k) => {
+    const id = `${k.kid ?? ""}:${k.alg ?? ""}`;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+
+  const keySet = createLocalJWKSet({ keys });
+  localJwksSets.set(jwksUri, keySet);
+  return keySet;
+}
+
 /** Clear cached JWKS key sets (useful for testing or key rotation). */
 export function clearJwksCache(): void {
   jwksSets.clear();
+  localJwksSets.clear();
 }
 
 // ---------------------------------------------------------------------------
@@ -109,16 +148,31 @@ export async function validateToken(
   }
 
   const keySet = getJwksKeySet(jwksUri);
+  const verifyOptions = {
+    issuer,
+    // Skip aud verification only when explicitly allowed; otherwise
+    // pin to the client id. No silent fall-through on mismatch.
+    ...(config.allowMissingAudience ? {} : { audience: config.clientId }),
+    clockTolerance: 30, // 30s clock skew
+  };
 
   let payload: JWTPayload;
   try {
-    const result = await jwtVerify(token, keySet, {
-      issuer,
-      // Skip aud verification only when explicitly allowed; otherwise
-      // pin to the client id. No silent fall-through on mismatch.
-      ...(config.allowMissingAudience ? {} : { audience: config.clientId }),
-      clockTolerance: 30, // 30s clock skew
-    });
+    let result;
+    try {
+      result = await jwtVerify(token, keySet, verifyOptions);
+    } catch (err) {
+      // A JWKS that lists the token's kid more than once makes jose's remote
+      // set ambiguous (`JWKSMultipleMatchingKeys`). Retry ONCE against a local
+      // set deduped by kid — the only key for that kid then verifies cleanly.
+      // Any other error propagates to the mapping below unchanged.
+      if ((err as { code?: string }).code === "ERR_JWKS_MULTIPLE_MATCHING_KEYS") {
+        const localSet = await getDedupedLocalKeySet(jwksUri);
+        result = await jwtVerify(token, localSet, verifyOptions);
+      } else {
+        throw err;
+      }
+    }
     payload = result.payload;
   } catch (err) {
     // Branch on jose's typed error codes, not message strings.
