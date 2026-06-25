@@ -2,8 +2,13 @@
  * JWT validation using jose library + OIDC JWKS discovery.
  *
  * Validates access/ID tokens issued by Hanzo IAM. The JWKS URI is taken
- * from the live OIDC discovery document (which points at the canonical
- * `/v1/iam/.well-known/jwks` endpoint); the issuer is verified.
+ * from the live OIDC discovery document when reachable; if discovery
+ * fails or returns no usable `jwks_uri`, it DEGRADES to the canonical
+ * `/v1/iam/.well-known/jwks` endpoint ({@link OIDC_PATHS.jwks}) — never
+ * leaving token verification dead because a discovery round-trip blipped.
+ * This mirrors the SDK-wide contract in `paths.ts`: a failed discovery
+ * resolves to the same canonical paths, not to a wrong path or a 200-HTML
+ * SPA catch-all. The issuer is verified.
  *
  * Audience is verified against `config.clientId` by default. A token
  * whose `aud` does not match is REJECTED — unless the caller explicitly
@@ -20,7 +25,7 @@ import {
   type JWTPayload,
 } from "jose";
 import type { Config, AuthResult, JwtClaims } from "./types.js";
-import { OIDC_PATHS, trimServerUrl } from "./paths.js";
+import { OIDC_PATHS, iamUrl, trimServerUrl } from "./paths.js";
 
 // ---------------------------------------------------------------------------
 // JWKS key set cache (per issuer)
@@ -83,6 +88,17 @@ type CachedDiscovery = { jwksUri: string; issuer: string; fetchedAt: number };
 const discoveryCache = new Map<string, CachedDiscovery>();
 const DISCOVERY_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * Resolve the JWKS URI (and issuer) for an IAM origin.
+ *
+ * Tries OIDC discovery first; on ANY failure — non-2xx, network error,
+ * timeout, or a body with no `jwks_uri` (e.g. the IAM SPA HTML catch-all
+ * parsed as JSON) — it degrades to the canonical {@link OIDC_PATHS.jwks}
+ * endpoint with a host-relative issuer. This never throws for a reachable
+ * IAM host: the canonical JWKS path is always a valid fallback, so a
+ * discovery blip can't take down token verification across every service
+ * that sits on `@hanzo/iam/server`.
+ */
 async function resolveJwksUri(serverUrl: string): Promise<{ jwksUri: string; issuer: string }> {
   const baseUrl = trimServerUrl(serverUrl);
   const cached = discoveryCache.get(baseUrl);
@@ -90,27 +106,33 @@ async function resolveJwksUri(serverUrl: string): Promise<{ jwksUri: string; iss
     return { jwksUri: cached.jwksUri, issuer: cached.issuer };
   }
 
+  // Canonical fallback — used verbatim when discovery is unusable.
+  const fallback = { jwksUri: iamUrl(baseUrl, "jwks"), issuer: baseUrl };
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8_000);
+  let resolved = fallback;
   try {
     const res = await fetch(`${baseUrl}${OIDC_PATHS.discovery}`, {
       signal: controller.signal,
       headers: { Accept: "application/json" },
     });
-    if (!res.ok) {
-      throw new Error(`OIDC discovery failed: ${res.status}`);
+    if (res.ok) {
+      const body = (await res.json().catch(() => null)) as
+        | { jwks_uri?: string; issuer?: string }
+        | null;
+      if (body?.jwks_uri) {
+        resolved = { jwksUri: body.jwks_uri, issuer: body.issuer ?? baseUrl };
+      }
     }
-    const body = (await res.json()) as { jwks_uri?: string; issuer?: string };
-    const jwksUri = body.jwks_uri;
-    const issuer = body.issuer ?? baseUrl;
-    if (!jwksUri) {
-      throw new Error("OIDC discovery response missing jwks_uri");
-    }
-    discoveryCache.set(baseUrl, { jwksUri, issuer, fetchedAt: Date.now() });
-    return { jwksUri, issuer };
+  } catch {
+    // Discovery unreachable/timed out — keep the canonical fallback.
   } finally {
     clearTimeout(timer);
   }
+
+  discoveryCache.set(baseUrl, { ...resolved, fetchedAt: Date.now() });
+  return resolved;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,12 +159,14 @@ export async function validateToken(
     return { ok: false, reason: "iam_token_missing" };
   }
 
+  // resolveJwksUri degrades to the canonical JWKS path on discovery
+  // failure, so this only throws if the serverUrl itself is unusable.
   let jwksUri: string;
   let issuer: string;
   try {
-    const discovery = await resolveJwksUri(config.serverUrl);
-    jwksUri = discovery.jwksUri;
-    issuer = discovery.issuer;
+    const resolved = await resolveJwksUri(config.serverUrl);
+    jwksUri = resolved.jwksUri;
+    issuer = resolved.issuer;
   } catch {
     return { ok: false, reason: "iam_discovery_failed" };
   }
