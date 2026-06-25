@@ -61,6 +61,34 @@ export const IAM_PATHS = {
 
 export type IamPathKey = keyof typeof IAM_PATHS;
 
+/**
+ * The canonical `serverUrl` origin for each Hanzo IAM brand. White-label
+ * is host-based: one IAM deployment serves every brand and selects the
+ * tenant by the origin it is reached on. This is the SINGLE place the
+ * brand→origin mapping lives — adapters take a `brand` and resolve here
+ * rather than each app hard-coding a hostname.
+ */
+export const BRAND_SERVER_URLS = {
+  hanzo: "https://iam.hanzo.ai",
+  lux: "https://lux.id",
+  zoo: "https://zoo.id",
+  bootnode: "https://id.bootno.de",
+  pars: "https://pars.id",
+} as const;
+
+/** A known Hanzo IAM brand key. */
+export type IamBrand = keyof typeof BRAND_SERVER_URLS;
+
+/**
+ * Resolve a brand to its canonical IAM `serverUrl`.
+ *
+ * @example
+ * serverUrlForBrand("lux") // → "https://lux.id"
+ */
+export function serverUrlForBrand(brand: IamBrand): string {
+  return BRAND_SERVER_URLS[brand];
+}
+
 /** Strip trailing slashes from a server origin so paths concat cleanly. */
 export function trimServerUrl(serverUrl: string): string {
   return serverUrl.replace(/\/+$/, "");

@@ -37,6 +37,10 @@ test("each subpath resolves in both ESM and CJS", async () => {
     "react",
     "views",
     "nextauth",
+    "sveltekit",
+    "remix",
+    "express",
+    "hono",
     "passport",
     "betterauth",
     "validation",
@@ -55,6 +59,39 @@ test("betterauth subpath yields the genericOAuth shape in both formats", async (
   const args = { serverUrl: "https://iam.hanzo.ai", clientId: "c", clientSecret: "s" };
   assert.equal(esm.iamProvider(args).tokenUrl, "https://iam.hanzo.ai/v1/iam/oauth/token");
   assert.equal(cjs.iamProvider(args).providerId, "hanzo");
+});
+
+test("nextauth subpath ships HanzoIamProvider with EXPLICIT endpoints (no wellKnown)", async () => {
+  const esm = await import(distUrl("nextauth.js").href);
+  const cjs = require(distPath("nextauth.cjs"));
+  for (const mod of [esm, cjs]) {
+    assert.equal(typeof mod.HanzoIamProvider, "function", "HanzoIamProvider export missing");
+    assert.equal(typeof mod.IamProvider, "function", "IamProvider alias missing");
+    const p = mod.HanzoIamProvider({ serverUrl: "https://iam.hanzo.ai", clientId: "c" });
+    assert.equal(p.wellKnown, undefined, "must not rely on discovery");
+    assert.equal(p.authorization.url, "https://iam.hanzo.ai/v1/iam/oauth/authorize");
+    assert.equal(p.token.url, "https://iam.hanzo.ai/v1/iam/oauth/token");
+    assert.equal(p.id, "hanzo-iam");
+  }
+});
+
+test("framework adapters ship and point at canonical endpoints", async () => {
+  const sveltekit = await import(distUrl("sveltekit.js").href);
+  assert.equal(typeof sveltekit.HanzoIam, "function");
+  const remix = await import(distUrl("remix.js").href);
+  const opts = remix.hanzoIamStrategyOptions({
+    serverUrl: "https://lux.id",
+    clientId: "c",
+    clientSecret: "s",
+    redirectURI: "https://app/cb",
+  });
+  assert.equal(opts.authorizationEndpoint, "https://lux.id/v1/iam/oauth/authorize");
+  const express = require(distPath("express.cjs"));
+  assert.equal(typeof express.requireAuth, "function");
+  assert.equal(typeof express.getIamSession, "function");
+  const hono = require(distPath("hono.cjs"));
+  assert.equal(typeof hono.requireAuth, "function");
+  assert.equal(typeof hono.getIamSession, "function");
 });
 
 test("server subpath yields getServerSession in both formats", async () => {

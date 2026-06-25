@@ -25,6 +25,22 @@ legacy `/oauth/*` and no `/api/login/*`.
 views: `authMethods` = `/v1/iam/auth/methods`, `onboarding` =
 `/v1/iam/onboarding`.
 
+`BRAND_SERVER_URLS` / `serverUrlForBrand(brand)` is the ONE brand→origin
+map (white-label is host-based; one IAM serves all brands): `hanzo` →
+`iam.hanzo.ai`, `lux` → `lux.id`, `zoo` → `zoo.id`, `bootnode` →
+`id.bootno.de`, `pars` → `pars.id`. Adapters take a `serverUrl`; apps that
+prefer a brand key resolve it here rather than hard-coding a hostname.
+
+## The one-way model (HIP-0111)
+
+IAM is adapted TO each framework; frameworks keep their NATIVE auth routes
+(NextAuth/Auth.js hard-mount `/api/auth` or `/auth` — never moved to
+`/v1`; moving them caused a prod outage). Each adapter is the framework's
+native provider/middleware shape whose authorize/token/userinfo resolve
+through `paths.ts` to `/v1/iam/oauth/*`. **Every endpoint in every adapter
+is built with `iamUrl(...)` / `OIDC_PATHS` — grep-proven, no path string
+elsewhere, no `discoveryUrl`-only config.**
+
 **Gotcha that drives all of this:** IAM returns a `200 text/html` SPA for
 any unregistered path. A wrong path yields HTML, not a 404 — silent
 breakage. So: hit the exact paths, and never let a failed discovery fall
@@ -42,18 +58,41 @@ same canonical paths.
   jose error *codes* (`ERR_JWT_EXPIRED`, `ERR_JWT_CLAIM_VALIDATION_FAILED`
   + `claim === "aud"`), not message strings.
 - **One name per thing.** Canonical = `Iam*` classes (`IamClient`,
-  `IamApiError`, `IamProvider`, `IamContext`) + `hanzo_iam_` storage
-  prefix + clean type names (`Config`, `User`, `Organization`, …). The
-  old `Hanzo*` aliases and the duplicate `Iam*` *type* aliases are
-  **deleted** — do not reintroduce them.
+  `IamApiError`, `IamContext`) + `hanzo_iam_` storage prefix + clean type
+  names (`Config`, `User`, `Organization`, …). Exception: the NextAuth
+  provider's canonical export is `HanzoIamProvider` (+ `HanzoIamProfile`
+  type) because that is what `console` imports; `IamProvider` is a stable
+  alias to the same function. The React provider component is `IamProvider`
+  (different module, different thing). Do not reintroduce other `Hanzo*`
+  aliases.
 
 ## Subpath entries (tsup `entry[]` ↔ package.json `exports`)
 
 `index`, `paths`, `auth`, `browser`, `server`, `types`, `react`, `views`,
-`nextauth`, `passport`, `betterauth`, `validation`. Dual ESM (`.js`) + CJS
-(`.cjs`) + `.d.ts`/`.d.cts` for each. **No `billing`** — it was a throwing
-tombstone; deleted from src, tsup, and exports. Billing lives in
-`@hanzo/commerce`.
+`nextauth`, `sveltekit`, `remix`, `express`, `hono`, `passport`,
+`betterauth`, `validation`. Dual ESM (`.js`) + CJS (`.cjs`) +
+`.d.ts`/`.d.cts` for each. **No `billing`** — it was a throwing tombstone;
+deleted from src, tsup, and exports. Billing lives in `@hanzo/commerce`.
+
+Framework adapters (all thin, all → `paths.ts`, zero runtime framework
+imports — they use structural types so no framework is a dependency):
+- `src/nextauth.ts` — `HanzoIamProvider(opts)` (alias `IamProvider`) →
+  NextAuth/Auth.js `OAuthConfig` with **explicit** `authorization`/`token`/
+  `userinfo`/`jwks_endpoint` (NOT `wellKnown`/discovery — that would risk
+  the SPA catch-all), default `id:"hanzo-iam"`, `client_secret_basic`,
+  `checks:["state","pkce"]`. Exports type `HanzoIamProfile`. `console`
+  spreads it and overrides `id`/`name`/`profile`.
+- `src/sveltekit.ts` — re-exports the nextauth provider as `HanzoIam` for
+  `@auth/core` hosts (SvelteKit/SolidStart/@auth/express). Same builder.
+- `src/remix.ts` — `hanzoIamStrategyOptions(opts)` (explicit endpoints +
+  `codeChallengeMethod:"S256"`) for `remix-auth-oauth2`'s `OAuth2Strategy`
+  (peer, constructed by the app) + `requireSession`/`getSession` loader
+  guards over `server.ts`.
+- `src/express.ts` — `requireAuth(config)` middleware (401 + attach
+  `req.iamSession`), `getSession` (optional), `getIamSession(req)` (typed
+  read). Connect/Express/raw-http req.headers record.
+- `src/hono.ts` — `requireAuth(config)` middleware (401 + `c.set`),
+  `getSession`, `getIamSession(c)`. Uses `c.req.raw` Web Request.
 
 - `src/server.ts` — framework-agnostic SSR helper. `getServerSession(req,
   config, opts?)` → `{ userId, owner, email?, claims } | null`. Reads
@@ -80,11 +119,14 @@ tombstone; deleted from src, tsup, and exports. Billing lives in
   rewrite `./x.js` → `./x.ts`, so the test runner needs tsx).
 - `node_modules/.bin/tsc --noEmit` must stay green (`tsconfig.json` sets
   `jsx: react-jsx` so the `.tsx` typechecks when imported from a test).
-- 44 tests cover: locked paths, `validateToken` matrix (happy / expired /
-  bad-aud-fails / missing-aud-fails / allowMissingAudience / tampered),
-  PKCE ≥256-bit entropy, exact `iamProvider` shape, nextauth pkce default,
+- 73 tests cover: locked paths + brand map, `validateToken` matrix (happy /
+  expired / bad-aud-fails / missing-aud-fails / allowMissingAudience /
+  tampered), PKCE ≥256-bit entropy, exact `iamProvider` shape, nextauth
+  explicit-endpoints + `hanzo-iam` id + `client_secret_basic`, the four new
+  adapters (sveltekit/remix/express/hono) endpoint pinning + guard 401s,
   passport `/v1/iam` URLs, server header extraction, views-are-real, and
-  dual ESM+CJS resolution of every subpath.
+  dual ESM+CJS resolution of every subpath (incl. the new ones, asserting
+  no `wellKnown` on the shipped nextauth provider).
 
 ## Repo
 
