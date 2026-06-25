@@ -26,6 +26,12 @@ let jwksHits = 0;
 // real-world JWKS (identical cert collected from two owners). Exercises the
 // dedupe-by-kid fallback so a duplicate kid never hard-fails verification.
 let duplicateJwksKey = false;
+// Controls what the discovery endpoint returns, to exercise the canonical
+// JWKS fallback when discovery is unusable (the JWKS endpoint stays up):
+//   "ok"   — normal discovery doc (default)
+//   "500"  — discovery 5xx
+//   "html" — 200 text/html SPA catch-all (IAM's behavior for unknown paths)
+let discoveryMode: "ok" | "500" | "html" = "ok";
 
 before(async () => {
   const kp = await generateKeyPair("RS256");
@@ -35,6 +41,17 @@ before(async () => {
   server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", origin);
     if (url.pathname === "/.well-known/openid-configuration") {
+      if (discoveryMode === "500") {
+        res.statusCode = 500;
+        res.end("upstream error");
+        return;
+      }
+      if (discoveryMode === "html") {
+        // IAM's SPA catch-all: 200 text/html for any unregistered path.
+        res.setHeader("Content-Type", "text/html");
+        res.end("<!doctype html><title>IAM</title>");
+        return;
+      }
       res.setHeader("Content-Type", "application/json");
       res.end(
         JSON.stringify({
@@ -177,6 +194,54 @@ test("duplicate kid + tampered token still FAILS (dedupe is not a bypass)", asyn
     if (!result.ok) assert.equal(result.reason, "iam_signature_invalid");
   } finally {
     duplicateJwksKey = false;
+    clearJwksCache();
+  }
+});
+
+test("discovery 5xx → degrades to canonical /v1/iam jwks, token still verifies", async () => {
+  clearJwksCache();
+  discoveryMode = "500";
+  const before = jwksHits;
+  try {
+    const token = await mint({ aud: CLIENT_ID, sub: "acme/alice", email: "alice@acme.com" });
+    const result = await validateToken(token, cfg());
+    // Without the fallback this would return iam_discovery_failed.
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.owner, "acme");
+    assert.ok(jwksHits > before, "canonical JWKS endpoint was hit despite discovery 5xx");
+  } finally {
+    discoveryMode = "ok";
+    clearJwksCache();
+  }
+});
+
+test("discovery 200-HTML SPA catch-all → degrades to canonical jwks (no silent outage)", async () => {
+  clearJwksCache();
+  discoveryMode = "html";
+  const before = jwksHits;
+  try {
+    const token = await mint({ aud: CLIENT_ID, sub: "acme/bob" });
+    const result = await validateToken(token, cfg());
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.userId, "acme/bob");
+    assert.ok(jwksHits > before, "canonical JWKS endpoint was hit despite HTML discovery body");
+  } finally {
+    discoveryMode = "ok";
+    clearJwksCache();
+  }
+});
+
+test("fallback still verifies signature — tampered token FAILS even via canonical jwks", async () => {
+  clearJwksCache();
+  discoveryMode = "html";
+  try {
+    const token = await mint({ aud: CLIENT_ID, sub: "acme/bob" });
+    const tampered = token.slice(0, -3) + "AAA";
+    const result = await validateToken(tampered, cfg());
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, "iam_signature_invalid");
+  } finally {
+    discoveryMode = "ok";
     clearJwksCache();
   }
 });
