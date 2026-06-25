@@ -678,3 +678,26 @@ export function toIAMToken(t: TokenResponse): IAMToken {
     scope: t.scope,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Promoted functional surface — the ONE thing apps import.
+//
+// `configureIam` + `startLogin({provider?})` + `handleCallback` + session
+// verbs over the configured singleton. See ./session.ts. Re-exported here so
+// `import { startLogin } from "@hanzo/iam/browser"` just works.
+// ---------------------------------------------------------------------------
+
+export {
+  configureIam,
+  startLogin,
+  getLoginUrl,
+  handleCallback,
+  getSession,
+  getUser,
+  logout,
+  getIam,
+  getIamConfig,
+  type IamSessionConfig,
+  type StartLoginOptions,
+  type IamSession,
+} from "./session.js";
