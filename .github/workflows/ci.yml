@@ -11,7 +11,11 @@ jobs:
     runs-on: hanzo-build-linux-amd64
     strategy:
       matrix:
-        node-version: [20, 22]
+        # Node 20 is EOL (2026-04-30) and GitHub Actions deprecated it.
+        # 22 = active LTS (matches the publish workflow), 24 = current.
+        # `node --test` recursive `**` globs require Node >= 21, so the
+        # quoted-glob test script (package.json) needs a >= 21 floor in CI.
+        node-version: [22, 24]
 
     steps:
       - uses: actions/checkout@v4
