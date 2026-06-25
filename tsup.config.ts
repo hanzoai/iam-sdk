@@ -34,6 +34,10 @@ export default defineConfig({
     'src/react.ts',
     'src/views.tsx',
     'src/nextauth.ts',
+    'src/sveltekit.ts',
+    'src/remix.ts',
+    'src/express.ts',
+    'src/hono.ts',
     'src/passport.ts',
     'src/betterauth.ts',
     'src/validation.ts'

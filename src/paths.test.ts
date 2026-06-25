@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { OIDC_PATHS, IAM_PATHS, iamUrl, trimServerUrl } from "./paths.js";
+import {
+  OIDC_PATHS,
+  IAM_PATHS,
+  BRAND_SERVER_URLS,
+  iamUrl,
+  trimServerUrl,
+  serverUrlForBrand,
+} from "./paths.js";
 
 // The canonical paths are LOCKED. If any of these change, every Hanzo
 // client breaks against the IAM HTML SPA catch-all — so the test pins
@@ -38,4 +45,22 @@ test("trimServerUrl strips trailing slashes only", () => {
   assert.equal(trimServerUrl("https://iam.hanzo.ai/"), "https://iam.hanzo.ai");
   assert.equal(trimServerUrl("https://iam.hanzo.ai"), "https://iam.hanzo.ai");
   assert.equal(trimServerUrl("https://iam.hanzo.ai///"), "https://iam.hanzo.ai");
+});
+
+test("BRAND_SERVER_URLS is the single brand→origin source of truth", () => {
+  assert.deepEqual(BRAND_SERVER_URLS, {
+    hanzo: "https://iam.hanzo.ai",
+    lux: "https://lux.id",
+    zoo: "https://zoo.id",
+    bootnode: "https://id.bootno.de",
+    pars: "https://pars.id",
+  });
+});
+
+test("serverUrlForBrand resolves each brand", () => {
+  assert.equal(serverUrlForBrand("hanzo"), "https://iam.hanzo.ai");
+  assert.equal(serverUrlForBrand("lux"), "https://lux.id");
+  assert.equal(serverUrlForBrand("zoo"), "https://zoo.id");
+  assert.equal(serverUrlForBrand("bootnode"), "https://id.bootno.de");
+  assert.equal(serverUrlForBrand("pars"), "https://pars.id");
 });

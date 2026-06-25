@@ -72,5 +72,15 @@ export type {
   UsageSummary,
 } from "./types.js";
 
-// Canonical OIDC paths — the single source of truth.
-export { OIDC_PATHS, IAM_PATHS, iamUrl, trimServerUrl } from "./paths.js";
+// Canonical OIDC paths + brand origins — the single source of truth.
+export {
+  OIDC_PATHS,
+  IAM_PATHS,
+  BRAND_SERVER_URLS,
+  iamUrl,
+  trimServerUrl,
+  serverUrlForBrand,
+  type OidcPathKey,
+  type IamPathKey,
+  type IamBrand,
+} from "./paths.js";
