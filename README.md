@@ -46,8 +46,11 @@ Every endpoint resolves through a single source of truth — `OIDC_PATHS`
 
 > **Gotcha** IAM serves a `200 text/html` SPA for any unregistered path.
 > A wrong path returns HTML, not a 404 — silent breakage. This SDK pins
-> the exact paths and never lets a failed discovery fall back to a wrong
-> one.
+> the exact paths and never lets discovery resolve to a wrong one: the
+> OAuth adapters skip discovery entirely (explicit endpoints), and JWT
+> verification **degrades to the canonical `jwks` path** when discovery
+> fails or returns the HTML catch-all — so a discovery blip can never take
+> down token validation.
 
 PKCE (S256) is always on. Confidential clients use `client_secret_basic`.
 Scopes are `["openid", "profile", "email"]`.
@@ -107,6 +110,11 @@ Audience **must** equal `clientId`; a mismatch fails with
 `iam_audience_invalid`. For IAM deployments that issue tokens without an
 `aud` claim, pass `allowMissingAudience: true` (the signature is still
 verified).
+
+The JWKS URI comes from OIDC discovery when reachable and **degrades to the
+canonical `/v1/iam/.well-known/jwks` path** otherwise (discovery 5xx,
+timeout, or the `200 text/html` SPA catch-all). The token signature is
+always verified against the fetched JWKS — the fallback is not a bypass.
 
 ### better-auth — `@hanzo/iam/betterauth`
 
@@ -329,8 +337,9 @@ isValidEmail("user@example.com"); // true
 
 | Import | Surface |
 |--------|---------|
-| `@hanzo/iam` | `IamClient`, `IamApiError`, `validateToken`, `clearJwksCache`, `IAM`, `toIAMToken`, `generatePKCEChallenge`, `generateState`, `OIDC_PATHS`, `IAM_PATHS`, `BRAND_SERVER_URLS`, `iamUrl`, `serverUrlForBrand`, all types |
+| `@hanzo/iam` | `IamClient`, `IamApiError`, `validateToken`, `clearJwksCache`, `IAM`, `toIAMToken`, `generatePKCEChallenge`, `generateState`, `configureIam`, `startLogin`, `getLoginUrl`, `handleCallback`, `getSession`, `getUser`, `logout`, `OIDC_PATHS`, `IAM_PATHS`, `BRAND_SERVER_URLS`, `iamUrl`, `serverUrlForBrand`, all types |
 | `@hanzo/iam/paths` | `OIDC_PATHS`, `IAM_PATHS`, `BRAND_SERVER_URLS`, `iamUrl`, `trimServerUrl`, `serverUrlForBrand` |
+| `@hanzo/iam/session` | `configureIam`, `startLogin`, `getLoginUrl`, `handleCallback`, `getSession`, `getUser`, `logout`, `getIam` |
 | `@hanzo/iam/server` | `getServerSession`, `withSession`, `getBearerToken`, `SESSION_COOKIE`, `ServerSession` |
 | `@hanzo/iam/auth` | `validateToken`, `clearJwksCache` |
 | `@hanzo/iam/browser` | `IAM`, `toIAMToken`, `IAMConfig`, `IAMUser`, `IAMToken` |
