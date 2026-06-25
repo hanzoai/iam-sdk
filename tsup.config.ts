@@ -28,6 +28,7 @@ export default defineConfig({
     'src/paths.ts',
     'src/auth.ts',
     'src/browser.ts',
+    'src/session.ts',
     'src/server.ts',
     'src/types.ts',
     'src/react.ts',
