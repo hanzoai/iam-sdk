@@ -9,8 +9,25 @@ Casdoor-derived OIDC provider served per-brand from a configurable origin:
 | Lux | `https://lux.id` |
 | Zoo | `https://zoo.id` |
 | Bootnode | `https://id.bootno.de` |
+| Pars | `https://pars.id` |
+
+The brand→origin map is exported as `BRAND_SERVER_URLS` /
+`serverUrlForBrand(brand)` from `@hanzo/iam` (and `@hanzo/iam/paths`) — one
+place, in code.
 
 One OIDC path set. One name per thing. No backwards-compatibility shims.
+
+## The one-way model
+
+IAM is adapted **to** each framework; frameworks keep their **native** auth
+routes. NextAuth/Auth.js hard-mount `/api/auth` (or `/auth`); Passport, Remix,
+Express, and Hono each have their own route conventions — this SDK never moves
+them onto `/v1`. The SDK's only job is to hand each framework a
+provider/adapter **in its native shape** whose authorize/token/userinfo point
+at our canonical `/v1/iam/oauth/*`. That translation lives here, in code, once
+(`src/paths.ts`); every adapter resolves endpoints through it and nowhere
+hard-codes a path. PKCE-S256 is always on; confidential clients use
+`client_secret_basic`.
 
 ## The canonical paths
 
@@ -121,21 +138,123 @@ true`, `authentication: "basic"`). No `discoveryUrl`.
 
 ```ts
 import NextAuth from "next-auth";
-import { IamProvider } from "@hanzo/iam/nextauth";
+import { HanzoIamProvider } from "@hanzo/iam/nextauth";
 
 export default NextAuth({
   providers: [
-    IamProvider({
-      serverUrl: process.env.IAM_ENDPOINT!,
+    HanzoIamProvider({
+      serverUrl: process.env.IAM_SERVER_URL!,
       clientId: process.env.IAM_CLIENT_ID!,
-      clientSecret: process.env.IAM_CLIENT_SECRET!,
+      clientSecret: process.env.IAM_CLIENT_SECRET,
     }),
   ],
 });
 ```
 
-`checks` default to `["state", "pkce"]`. `wellKnown` points at OIDC
-discovery; openid-client follows it to the canonical JWKS endpoint.
+The provider id defaults to `"hanzo-iam"`. Endpoints are **explicit** —
+`authorization`/`token`/`userinfo`/`jwks_endpoint` come straight from
+`OIDC_PATHS`; there is **no `wellKnown`/discovery round-trip** (a discovery
+fetch that fails or resolves wrong would hit the IAM HTML SPA catch-all —
+silent breakage). `issuer` + `jwks_endpoint` are supplied so openid-client
+still verifies the id_token without discovery. `checks` default to
+`["state", "pkce"]`; token auth is `client_secret_basic`. `IamProvider` is a
+stable alias for the same function; the exported profile type is
+`HanzoIamProfile`.
+
+### SvelteKit / Auth.js core — `@hanzo/iam/sveltekit`
+
+`@auth/core` (SvelteKit, SolidStart, `@auth/express`, …) consumes the same
+provider shape as NextAuth, so the SvelteKit adapter is that provider under an
+Auth.js-idiomatic name — one builder, the same explicit endpoints.
+
+```ts
+import { SvelteKitAuth } from "@auth/sveltekit";
+import { HanzoIam } from "@hanzo/iam/sveltekit";
+import { env } from "$env/dynamic/private";
+
+export const { handle, signIn, signOut } = SvelteKitAuth({
+  providers: [
+    HanzoIam({
+      serverUrl: env.IAM_SERVER_URL,
+      clientId: env.IAM_CLIENT_ID,
+      clientSecret: env.IAM_CLIENT_SECRET,
+    }),
+  ],
+});
+```
+
+### Remix — `@hanzo/iam/remix`
+
+Login via `remix-auth` + `remix-auth-oauth2` (you construct the strategy, so
+its version stays yours); guards via the framework-agnostic verifier.
+
+```ts
+// app/auth.server.ts — login strategy
+import { Authenticator } from "remix-auth";
+import { OAuth2Strategy } from "remix-auth-oauth2";
+import { hanzoIamStrategyOptions } from "@hanzo/iam/remix";
+
+export const authenticator = new Authenticator(sessionStorage);
+authenticator.use(
+  new OAuth2Strategy(
+    hanzoIamStrategyOptions({
+      serverUrl: process.env.IAM_SERVER_URL!,
+      clientId: process.env.IAM_CLIENT_ID!,
+      clientSecret: process.env.IAM_CLIENT_SECRET!,
+      redirectURI: "https://app.hanzo.ai/auth/hanzo-iam/callback",
+    }),
+    async ({ tokens }) => tokens,
+  ),
+  "hanzo-iam",
+);
+```
+
+```ts
+// guarded loader/action
+import { requireSession } from "@hanzo/iam/remix";
+
+const iam = { serverUrl: process.env.IAM_SERVER_URL!, clientId: process.env.IAM_CLIENT_ID! };
+
+export async function loader({ request }: { request: Request }) {
+  const session = await requireSession(request, iam); // throws 401 Response if absent
+  return Response.json({ org: session.owner });
+}
+```
+
+### Express / Connect — `@hanzo/iam/express`
+
+```ts
+import express from "express";
+import { requireAuth, getIamSession } from "@hanzo/iam/express";
+
+const iam = { serverUrl: process.env.IAM_SERVER_URL!, clientId: process.env.IAM_CLIENT_ID! };
+const app = express();
+
+app.get("/me", requireAuth(iam), (req, res) => {
+  const session = getIamSession(req); // typed, present after requireAuth
+  res.json({ user: session.userId, org: session.owner });
+});
+```
+
+`requireAuth(config)` 401s tokenless requests and attaches the verified
+session to `req.iamSession`. For optional-auth routes use
+`getSession(req, config)` (returns `null` when absent).
+
+### Hono — `@hanzo/iam/hono`
+
+```ts
+import { Hono } from "hono";
+import { requireAuth, getIamSession } from "@hanzo/iam/hono";
+
+const iam = { serverUrl: process.env.IAM_SERVER_URL!, clientId: process.env.IAM_CLIENT_ID! };
+const app = new Hono();
+
+app.use("/api/*", requireAuth(iam));
+app.get("/api/me", (c) => {
+  const session = getIamSession(c);
+  return c.json({ user: session.userId, org: session.owner });
+});
+```
 
 ### React (SPA) — `@hanzo/iam/react`
 
@@ -210,15 +329,19 @@ isValidEmail("user@example.com"); // true
 
 | Import | Surface |
 |--------|---------|
-| `@hanzo/iam` | `IamClient`, `IamApiError`, `validateToken`, `clearJwksCache`, `IAM`, `toIAMToken`, `generatePKCEChallenge`, `generateState`, `OIDC_PATHS`, `IAM_PATHS`, `iamUrl`, all types |
-| `@hanzo/iam/paths` | `OIDC_PATHS`, `IAM_PATHS`, `iamUrl`, `trimServerUrl` |
+| `@hanzo/iam` | `IamClient`, `IamApiError`, `validateToken`, `clearJwksCache`, `IAM`, `toIAMToken`, `generatePKCEChallenge`, `generateState`, `OIDC_PATHS`, `IAM_PATHS`, `BRAND_SERVER_URLS`, `iamUrl`, `serverUrlForBrand`, all types |
+| `@hanzo/iam/paths` | `OIDC_PATHS`, `IAM_PATHS`, `BRAND_SERVER_URLS`, `iamUrl`, `trimServerUrl`, `serverUrlForBrand` |
 | `@hanzo/iam/server` | `getServerSession`, `withSession`, `getBearerToken`, `SESSION_COOKIE`, `ServerSession` |
 | `@hanzo/iam/auth` | `validateToken`, `clearJwksCache` |
 | `@hanzo/iam/browser` | `IAM`, `toIAMToken`, `IAMConfig`, `IAMUser`, `IAMToken` |
 | `@hanzo/iam/react` | `IamProvider`, `useIam`, `useOrganizations`, `useIamToken`, `OrgProjectSwitcher` |
 | `@hanzo/iam/views` | `Login`, `SocialButton`, `WalletButton`, `EmailPasswordForm`, `OTPStep`, `OnboardingFlow`, `IdentityStep`, `DocumentsStep`, `BiometricStep`, `ScreenStep`, `SubmitStep`, `useAuthMethods` |
 | `@hanzo/iam/betterauth` | `iamProvider` |
-| `@hanzo/iam/nextauth` | `IamProvider` |
+| `@hanzo/iam/nextauth` | `HanzoIamProvider`, `IamProvider` (alias), `HanzoIamProfile` |
+| `@hanzo/iam/sveltekit` | `HanzoIam`, `HanzoIamProvider`, `IamProvider` |
+| `@hanzo/iam/remix` | `hanzoIamStrategyOptions`, `requireSession`, `getSession` |
+| `@hanzo/iam/express` | `requireAuth`, `getSession`, `getIamSession` |
+| `@hanzo/iam/hono` | `requireAuth`, `getSession`, `getIamSession` |
 | `@hanzo/iam/passport` | `createIamPassportStrategy` |
 | `@hanzo/iam/types` | all types |
 | `@hanzo/iam/validation` | `isValidPhone`, `isValidEmail` |
