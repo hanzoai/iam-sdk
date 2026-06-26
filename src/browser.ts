@@ -75,14 +75,48 @@ export type IAMConfig = Config & {
 // Browser IAM SDK
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve the storage used for the short-lived PKCE transaction (state +
+ * code_verifier). These two values are written before the full-page redirect
+ * to IAM and read back at the callback — they MUST survive that round-trip.
+ *
+ * sessionStorage does NOT reliably survive it: Safari/WebKit ITP can drop it,
+ * the instant SSO bounce (already signed in at IAM → immediate 302 back) and
+ * in-app webviews can land the callback in a fresh context, and multi-tab
+ * logins don't share it. The symptom is "Missing PKCE code verifier" at the
+ * callback even though signinRedirect() ran. localStorage survives all of
+ * these on the same origin; the values are one-shot and removed immediately
+ * after the exchange, so there is no lingering-secret tradeoff.
+ *
+ * Falls back to the token storage when localStorage is unavailable (SSR,
+ * privacy mode that throws on access).
+ */
+function resolveTxStorage(fallback: Storage): Storage {
+  try {
+    if (typeof localStorage !== "undefined") {
+      const probe = "hanzo_iam_probe";
+      localStorage.setItem(probe, "1");
+      localStorage.removeItem(probe);
+      return localStorage;
+    }
+  } catch {
+    /* localStorage unavailable (privacy mode) — fall back */
+  }
+  return fallback;
+}
+
 export class IAM {
   private readonly config: IAMConfig;
   private readonly storage: Storage;
+  /** Storage for the one-shot PKCE transaction (state + verifier). Defaults to
+   * localStorage so it survives the OAuth redirect; see resolveTxStorage. */
+  private readonly txStorage: Storage;
   private discoveryCache: OidcDiscovery | null = null;
 
   constructor(config: IAMConfig) {
     this.config = config;
     this.storage = config.storage ?? sessionStorage;
+    this.txStorage = resolveTxStorage(this.storage);
   }
 
   // -----------------------------------------------------------------------
@@ -156,8 +190,8 @@ export class IAM {
     const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
     const state = generateState();
 
-    this.storage.setItem(KEY_STATE, state);
-    this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
+    this.txStorage.setItem(KEY_STATE, state);
+    this.txStorage.setItem(KEY_CODE_VERIFIER, codeVerifier);
 
     const url = new URL(discovery.authorization_endpoint);
     url.searchParams.set("client_id", this.config.clientId);
@@ -213,8 +247,8 @@ export class IAM {
   private async beginCredential(): Promise<{ codeChallenge: string; state: string }> {
     const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
     const state = generateState();
-    this.storage.setItem(KEY_STATE, state);
-    this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
+    this.txStorage.setItem(KEY_STATE, state);
+    this.txStorage.setItem(KEY_CODE_VERIFIER, codeVerifier);
     return { codeChallenge, state };
   }
 
@@ -324,7 +358,11 @@ export class IAM {
     }
 
     const state = url.searchParams.get("state");
-    const savedState = this.storage.getItem(KEY_STATE);
+    // The transaction lives in txStorage (localStorage); the this.storage read
+    // is a transition fallback for a login started by an older build that wrote
+    // sessionStorage. Once deployed everywhere, only txStorage is ever hit.
+    const savedState =
+      this.txStorage.getItem(KEY_STATE) ?? this.storage.getItem(KEY_STATE);
     if (savedState && state !== savedState) {
       throw new Error("OAuth state mismatch — possible CSRF attack");
     }
@@ -334,12 +372,16 @@ export class IAM {
       throw new Error("Missing authorization code in callback URL");
     }
 
-    const codeVerifier = this.storage.getItem(KEY_CODE_VERIFIER);
+    const codeVerifier =
+      this.txStorage.getItem(KEY_CODE_VERIFIER) ??
+      this.storage.getItem(KEY_CODE_VERIFIER);
     if (!codeVerifier) {
       throw new Error("Missing PKCE code verifier — start sign-in via signinRedirect() or the embedded credential login.");
     }
 
-    // One-shot — clean up state before the network call.
+    // One-shot — clean up state (both stores) before the network call.
+    this.txStorage.removeItem(KEY_STATE);
+    this.txStorage.removeItem(KEY_CODE_VERIFIER);
     this.storage.removeItem(KEY_STATE);
     this.storage.removeItem(KEY_CODE_VERIFIER);
 
@@ -480,6 +522,8 @@ export class IAM {
       const cleanup = () => {
         clearTimeout(timeout);
         iframe.remove();
+        this.txStorage.removeItem(KEY_STATE);
+        this.txStorage.removeItem(KEY_CODE_VERIFIER);
         this.storage.removeItem(KEY_STATE);
         this.storage.removeItem(KEY_CODE_VERIFIER);
       };
@@ -574,6 +618,8 @@ export class IAM {
     this.storage.removeItem(KEY_EXPIRES_AT);
     this.storage.removeItem(KEY_STATE);
     this.storage.removeItem(KEY_CODE_VERIFIER);
+    this.txStorage.removeItem(KEY_STATE);
+    this.txStorage.removeItem(KEY_CODE_VERIFIER);
   }
 
   // -----------------------------------------------------------------------
