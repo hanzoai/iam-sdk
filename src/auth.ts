@@ -139,12 +139,22 @@ export async function validateToken(
 
   let jwksUri: string;
   let issuer: string;
-  try {
-    const discovery = await resolveJwksUri(config.serverUrl);
-    jwksUri = discovery.jwksUri;
-    issuer = discovery.issuer;
-  } catch {
-    return { ok: false, reason: "iam_discovery_failed" };
+  if (config.jwksUri && config.issuer) {
+    // Explicit overrides — bypass OIDC discovery entirely. This is the
+    // in-cluster / split-horizon path: the pod can't reach the public IAM
+    // origin (LB hairpin / WAF 403) and discovery would advertise an
+    // unreachable public jwks_uri + a mismatched issuer, so the caller pins
+    // a reachable in-cluster JWKS endpoint and the real public issuer.
+    jwksUri = config.jwksUri;
+    issuer = config.issuer;
+  } else {
+    try {
+      const discovery = await resolveJwksUri(config.serverUrl);
+      jwksUri = discovery.jwksUri;
+      issuer = discovery.issuer;
+    } catch {
+      return { ok: false, reason: "iam_discovery_failed" };
+    }
   }
 
   const keySet = getJwksKeySet(jwksUri);

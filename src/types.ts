@@ -25,6 +25,27 @@ export type Config = {
    * fails with `iam_audience_invalid`.
    */
   allowMissingAudience?: boolean;
+  /**
+   * Explicit JWKS endpoint for server-side token validation, bypassing OIDC
+   * discovery. REQUIRED for in-cluster / split-horizon deployments: a pod
+   * often cannot reach the public IAM origin (`serverUrl`) — the external LB
+   * hairpins or a WAF 403s pod→public traffic — and IAM's discovery doc
+   * advertises that unreachable public `jwks_uri`. Point this at the
+   * in-cluster IAM service instead, e.g.
+   * `http://iam.hanzo.svc/v1/iam/.well-known/jwks`. When set, `validateToken`
+   * fetches keys here and never calls discovery. The keys are the same (one
+   * IAM), so signatures still verify.
+   */
+  jwksUri?: string;
+  /**
+   * Explicit expected token issuer, bypassing the issuer OIDC discovery would
+   * report. REQUIRED alongside `jwksUri` for split-horizon: the token's `iss`
+   * is the public per-brand login origin (e.g. `https://hanzo.id`), but
+   * in-cluster discovery reports a different/canonical issuer
+   * (e.g. `https://hanzo.ai`). Set this to the public origin tokens are
+   * actually minted with so the issuer check matches.
+   */
+  issuer?: string;
 };
 
 // ---------------------------------------------------------------------------
