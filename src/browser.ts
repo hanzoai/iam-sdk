@@ -45,6 +45,15 @@ const KEY_REFRESH_TOKEN = `${STORAGE_PREFIX}refresh_token`;
 const KEY_ID_TOKEN = `${STORAGE_PREFIX}id_token`;
 const KEY_EXPIRES_AT = `${STORAGE_PREFIX}expires_at`;
 
+// Per-attempt PKCE verifier slot, keyed by the attempt's `state`. Isolates
+// concurrent logins (double-click, a racing signinSilent, a re-run React
+// effect) so a second attempt can never stomp the first's verifier. Note the
+// trailing `:` keeps it disjoint from the legacy single slot KEY_CODE_VERIFIER.
+const KEY_VERIFIER_PREFIX = `${KEY_CODE_VERIFIER}:`;
+function verifierKey(state: string): string {
+  return `${KEY_VERIFIER_PREFIX}${state}`;
+}
+
 // ---------------------------------------------------------------------------
 // Popup handshake contract
 // ---------------------------------------------------------------------------
@@ -186,6 +195,22 @@ export class IAM {
   }
 
   // -----------------------------------------------------------------------
+  // PKCE transaction storage
+  // -----------------------------------------------------------------------
+
+  /**
+   * Persist a login attempt's PKCE verifier. The authoritative slot is keyed
+   * by `state` (concurrent attempts stay isolated); the legacy single slots
+   * are kept as the latest-attempt pointer + a compatibility fallback for
+   * flows that predate per-state storage.
+   */
+  private stashPkce(state: string, codeVerifier: string): void {
+    this.storage.setItem(verifierKey(state), codeVerifier);
+    this.storage.setItem(KEY_STATE, state);
+    this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
+  }
+
+  // -----------------------------------------------------------------------
   // Authorize URL builder
   // -----------------------------------------------------------------------
 
@@ -197,8 +222,7 @@ export class IAM {
     const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
     const state = generateState();
 
-    this.storage.setItem(KEY_STATE, state);
-    this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
+    this.stashPkce(state, codeVerifier);
 
     const url = new URL(discovery.authorization_endpoint);
     url.searchParams.set("client_id", this.config.clientId);
@@ -254,8 +278,7 @@ export class IAM {
   private async beginCredential(): Promise<{ codeChallenge: string; state: string }> {
     const { codeVerifier, codeChallenge } = await generatePKCEChallenge();
     const state = generateState();
-    this.storage.setItem(KEY_STATE, state);
-    this.storage.setItem(KEY_CODE_VERIFIER, codeVerifier);
+    this.stashPkce(state, codeVerifier);
     return { codeChallenge, state };
   }
 
@@ -364,25 +387,48 @@ export class IAM {
       throw new Error(`OAuth error: ${desc}`);
     }
 
-    const state = url.searchParams.get("state");
-    const savedState = this.storage.getItem(KEY_STATE);
-    if (savedState && state !== savedState) {
-      throw new Error("OAuth state mismatch — possible CSRF attack");
-    }
-
     const code = url.searchParams.get("code");
     if (!code) {
       throw new Error("Missing authorization code in callback URL");
     }
 
-    const codeVerifier = this.storage.getItem(KEY_CODE_VERIFIER);
-    if (!codeVerifier) {
-      throw new Error("Missing PKCE code verifier — start sign-in via signinRedirect() or the embedded credential login.");
-    }
+    const state = url.searchParams.get("state");
 
-    // One-shot — clean up state before the network call.
-    this.storage.removeItem(KEY_STATE);
-    this.storage.removeItem(KEY_CODE_VERIFIER);
+    // Resolve the PKCE verifier for THIS attempt. Prefer the per-attempt slot
+    // keyed by the returned `state`: its presence proves WE issued this state,
+    // so concurrent logins stay isolated (no stomping) AND state/CSRF is
+    // enforced structurally — an attacker cannot fabricate a state that maps
+    // to a stored verifier slot. One-shot: consume the slot before the call.
+    let codeVerifier: string | null = state ? this.storage.getItem(verifierKey(state)) : null;
+
+    if (codeVerifier) {
+      this.storage.removeItem(verifierKey(state as string));
+      // Clear the latest-attempt pointer only if it names THIS attempt, so a
+      // racing second login's pointer is left intact.
+      if (this.storage.getItem(KEY_STATE) === state) {
+        this.storage.removeItem(KEY_STATE);
+        this.storage.removeItem(KEY_CODE_VERIFIER);
+      }
+    } else {
+      // Legacy single-slot fallback. Enforce state here — a MISSING saved
+      // state is itself a rejection (never soft-skip the CSRF check). This is
+      // fail-closed: a stomped/concurrent flow that lost its slot also lands
+      // here and is rejected with an accurate message (not a false CSRF cry).
+      const savedState = this.storage.getItem(KEY_STATE);
+      if (!savedState || state !== savedState) {
+        throw new Error(
+          "OAuth state mismatch — stale, concurrent, or forged login. Restart sign-in.",
+        );
+      }
+      codeVerifier = this.storage.getItem(KEY_CODE_VERIFIER);
+      if (!codeVerifier) {
+        throw new Error(
+          "Missing PKCE code verifier — start sign-in via signinRedirect() or the embedded credential login.",
+        );
+      }
+      this.storage.removeItem(KEY_STATE);
+      this.storage.removeItem(KEY_CODE_VERIFIER);
+    }
 
     const body = new URLSearchParams({
       grant_type: "authorization_code",
@@ -694,7 +740,7 @@ export class IAM {
    * Returns null if silent auth fails (user needs to log in interactively).
    */
   async signinSilent(timeoutMs = 5000): Promise<IAMToken | null> {
-    const { url } = await this.buildAuthorizeUrl({ prompt: "none" });
+    const { url, state } = await this.buildAuthorizeUrl({ prompt: "none" });
 
     return new Promise<IAMToken | null>((resolve) => {
       const iframe = document.createElement("iframe");
@@ -708,6 +754,7 @@ export class IAM {
       const cleanup = () => {
         clearTimeout(timeout);
         iframe.remove();
+        this.storage.removeItem(verifierKey(state));
         this.storage.removeItem(KEY_STATE);
         this.storage.removeItem(KEY_CODE_VERIFIER);
       };
@@ -716,10 +763,16 @@ export class IAM {
         try {
           const iframeUrl = iframe.contentWindow?.location.href;
           if (iframeUrl && iframeUrl.startsWith(this.config.redirectUri)) {
-            cleanup();
+            // handleCallback consumes the per-attempt verifier slot itself —
+            // do NOT pre-clear it here; only sweep leftovers if it fails.
+            clearTimeout(timeout);
+            iframe.remove();
             this.handleCallback(iframeUrl).then(
               (tokens) => resolve(tokens),
-              () => resolve(null),
+              () => {
+                cleanup();
+                resolve(null);
+              },
             );
           }
         } catch {
@@ -802,6 +855,11 @@ export class IAM {
     this.storage.removeItem(KEY_EXPIRES_AT);
     this.storage.removeItem(KEY_STATE);
     this.storage.removeItem(KEY_CODE_VERIFIER);
+    // Sweep any per-attempt PKCE verifier slots left by abandoned flows.
+    for (let i = this.storage.length - 1; i >= 0; i--) {
+      const k = this.storage.key(i);
+      if (k && k.startsWith(KEY_VERIFIER_PREFIX)) this.storage.removeItem(k);
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -918,10 +976,11 @@ export function toIAMToken(t: TokenResponse): IAMToken {
  * }
  * ```
  *
- * When the page is the auth popup (it has a `window.opener`), it hands the
- * freshly minted `code` + `state` back to the opener via a SINGLE
- * `postMessage` and closes itself — returning `true`. For a normal top-level
- * navigation (no opener) it does nothing and returns `false`, so the app
+ * When the page is our auth popup (it carries the reserved `window.name` set
+ * by `signinPopup` AND has a `window.opener`), it hands the freshly minted
+ * `code` + `state` back to the opener via a SINGLE `postMessage` and closes
+ * itself — returning `true`. For a normal top-level navigation (wrong/no
+ * window.name, or no opener) it does nothing and returns `false`, so the app
  * falls through to its standard `handleCallback()`.
  *
  * SECURITY: the message is posted with `targetOrigin` pinned to this page's
@@ -936,6 +995,12 @@ export function toIAMToken(t: TokenResponse): IAMToken {
  */
 export function completePopupSignin(): boolean {
   if (typeof window === "undefined") return false;
+  // Gate on the popup's window.name — signinPopup opens it with exactly this
+  // name, which persists across the cross-origin provider hop. This makes the
+  // bridge inert on any ordinary same-origin page that merely happens to carry
+  // ?code + a window.opener (e.g. a tab opened with target=_blank), so it can
+  // never post a message or close a window it was not meant to.
+  if (window.name !== POPUP_WINDOW_NAME) return false;
   const opener = window.opener as Window | null;
   if (!opener || opener === window) return false;
 

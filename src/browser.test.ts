@@ -19,7 +19,7 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
-import { IAM } from "./browser.js";
+import { IAM, POPUP_WINDOW_NAME } from "./browser.js";
 
 // --- Minimal in-memory Storage ------------------------------------------------
 
@@ -290,6 +290,7 @@ test("completePopupSignin: posts code+state to the opener with a PINNED origin, 
   let closed = false;
 
   (globalThis as Record<string, unknown>).window = {
+    name: POPUP_WINDOW_NAME,
     opener: {
       postMessage: (msg: unknown, targetOrigin: unknown) => {
         captured = { msg, targetOrigin };
@@ -316,9 +317,25 @@ test("completePopupSignin: posts code+state to the opener with a PINNED origin, 
   assert.equal(closed, true, "popup closed itself");
 });
 
+test("completePopupSignin: window.name gate — inert on a non-popup page even with opener + ?code", async () => {
+  const { completePopupSignin } = await import("./browser.js");
+  let posted = false;
+  let closed = false;
+  (globalThis as Record<string, unknown>).window = {
+    name: "", // NOT the reserved popup name — this is an ordinary tab
+    opener: { postMessage: () => (posted = true) },
+    location: { href: "https://demo.hanzo.ai/auth/callback?code=X&state=Y", origin: "https://demo.hanzo.ai" },
+    close: () => (closed = true),
+  };
+  assert.equal(completePopupSignin(), false);
+  assert.equal(posted, false, "must not post from a non-popup page");
+  assert.equal(closed, false, "must not close a non-popup page");
+});
+
 test("completePopupSignin: returns false when there is no opener (normal navigation)", async () => {
   const { completePopupSignin } = await import("./browser.js");
   (globalThis as Record<string, unknown>).window = {
+    name: POPUP_WINDOW_NAME,
     opener: null,
     location: { href: "https://demo.hanzo.ai/auth/callback?code=X&state=Y", origin: "https://demo.hanzo.ai" },
     close: () => {},
@@ -330,6 +347,7 @@ test("completePopupSignin: returns false when the URL carries no code/error", as
   const { completePopupSignin } = await import("./browser.js");
   let posted = false;
   (globalThis as Record<string, unknown>).window = {
+    name: POPUP_WINDOW_NAME,
     opener: { postMessage: () => (posted = true) },
     location: { href: "https://demo.hanzo.ai/dashboard", origin: "https://demo.hanzo.ai" },
     close: () => {},
@@ -388,4 +406,62 @@ test("loginWithWallet: rejects with a clear error when no EIP-1193 provider is p
   (globalThis as Record<string, unknown>).ethereum = undefined;
   const iam = newIam();
   await assert.rejects(() => iam.loginWithWallet(), /EIP-1193 wallet provider/i);
+});
+
+// ============================================================================
+// handleCallback — per-attempt verifier isolation (LOW-2) + no soft-skip (INFO-2)
+// ============================================================================
+
+test("handleCallback: concurrent logins are isolated — a second attempt cannot stomp the first (LOW-2)", async () => {
+  const iam = newIam();
+
+  // Two overlapping attempts. The second stomps the LEGACY single slots, but
+  // each keeps its own per-state verifier slot.
+  const urlA = new URL(await iam.getSigninUrl());
+  const stateA = urlA.searchParams.get("state") as string;
+  const urlB = new URL(await iam.getSigninUrl());
+  const stateB = urlB.searchParams.get("state") as string;
+  assert.notEqual(stateA, stateB);
+
+  // The FIRST attempt's callback still completes (its verifier survived).
+  const tokenA = await iam.handleCallback(`${REDIRECT}?code=code-A&state=${stateA}`);
+  assert.equal(tokenA.accessToken, "at-123");
+  assert.equal(lastTokenBody?.get("code"), "code-A");
+  assert.ok((lastTokenBody?.get("code_verifier") ?? "").length >= 43);
+
+  // The SECOND attempt's callback also completes.
+  const tokenB = await iam.handleCallback(`${REDIRECT}?code=code-B&state=${stateB}`);
+  assert.equal(tokenB.accessToken, "at-123");
+  assert.equal(lastTokenBody?.get("code"), "code-B");
+
+  // Both per-attempt slots consumed — no leaks.
+  assert.equal(storage.getItem(`hanzo_iam_code_verifier:${stateA}`), null);
+  assert.equal(storage.getItem(`hanzo_iam_code_verifier:${stateB}`), null);
+});
+
+test("handleCallback: rejects a callback with no stored transaction — no soft-skip of the state check (INFO-2)", async () => {
+  const iam = newIam();
+  // Nothing stashed: no per-state slot AND no legacy saved state. Previously
+  // this soft-skipped the CSRF check; now a missing saved state is a rejection.
+  await assert.rejects(
+    () => iam.handleCallback(`${REDIRECT}?code=x&state=whatever`),
+    /state mismatch/i,
+  );
+  assert.equal(lastTokenBody, null, "no token exchange without a stored transaction");
+});
+
+test("clearTokens: sweeps every per-attempt PKCE verifier slot", async () => {
+  const iam = newIam();
+  await iam.getSigninUrl();
+  await iam.getSigninUrl();
+  // Two attempts → at least two namespaced slots present.
+  const before = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(
+    (k) => k?.startsWith("hanzo_iam_code_verifier:"),
+  );
+  assert.ok(before.length >= 2, "namespaced verifier slots exist before clear");
+  iam.clearTokens();
+  const after = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(
+    (k) => k?.startsWith("hanzo_iam_code_verifier:"),
+  );
+  assert.equal(after.length, 0, "all per-attempt slots swept on clearTokens");
 });

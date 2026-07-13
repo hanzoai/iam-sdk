@@ -114,18 +114,28 @@ imports — they use structural types so no framework is a dependency):
   `signinRedirect` is only an explicit standalone fallback. The prior file
   was `export declare const`-only → an empty runtime module; that
   regression is locked out by `views.test.ts`.
-- `src/browser.ts` popup+wallet (v0.13.4) — `IAM#signinPopup` completes over
+- `src/browser.ts` popup+wallet (v0.13.5) — `IAM#signinPopup` completes over
   a one-shot `postMessage` handshake with THREE mandatory gates: `event.origin`
   === the `redirect_uri` origin (allowlist), `data.source === "hanzo-iam"`,
   and `data.state` === the state THIS call generated (CSRF). It tears the
   listener + popup down after the first accepted message and never logs the
   code. `completePopupSignin()` is the popup callback-page half — mount it on
-  the `redirect_uri` route; it `postMessage`s `{code,state}` to the opener with
-  `targetOrigin` pinned to its OWN origin (never `"*"`) and returns `false` for
-  a normal navigation. `IAM#loginWithWallet` runs GET `web3/nonce` → server
-  message signed verbatim via `personal_sign` → POST `web3/verify` (server
-  RECOVERS the signer from the signature; the client `address` is a hint, never
-  trusted) → PKCE-bound code → `handleCallback`. Locked by `browser.test.ts`.
+  the `redirect_uri` route; it gates on the reserved `window.name`
+  (`hanzo_iam_login`, set by `signinPopup`, survives the provider hop) so it is
+  inert on any ordinary same-origin page that merely carries `?code` + an
+  `opener`, then `postMessage`s `{code,state}` to the opener with `targetOrigin`
+  pinned to its OWN origin (never `"*"`), else returns `false`.
+  `IAM#loginWithWallet` runs GET `web3/nonce` → server message signed verbatim
+  via `personal_sign` → POST `web3/verify` (server RECOVERS the signer; the
+  client `address` is a hint, never trusted) → PKCE-bound code → `handleCallback`.
+- PKCE transaction storage is PER-ATTEMPT: the verifier lives under
+  `hanzo_iam_code_verifier:<state>` (via `stashPkce`), so a double-click / racing
+  `signinSilent` / re-run React effect can't stomp another attempt's verifier
+  (legacy single slots kept as latest-attempt pointer + fallback; `clearTokens`
+  sweeps all namespaced slots). `handleCallback` resolves the verifier by the
+  returned state — its presence structurally proves we issued that state (CSRF),
+  and a MISSING saved state on the legacy path is itself a rejection (never a
+  soft-skip). All locked by `browser.test.ts`.
 - `src/betterauth.ts` — `iamProvider(config)` returns a real `genericOAuth`
   config entry: `{ providerId:"hanzo", authorizationUrl, tokenUrl,
   userInfoUrl, clientId, clientSecret, scopes, pkce:true,
