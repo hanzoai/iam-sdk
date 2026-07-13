@@ -14,10 +14,14 @@
  * source of truth — the server emits the method list, the client renders
  * exactly that. No env mismatch, no client-side guessing.
  *
- * All OAuth interactions go through the canonical PKCE redirect flow in
- * `@hanzo/iam/browser` (which resolves every endpoint through
- * `OIDC_PATHS`). The email/password and OTP primitives drive the IAM
- * password/OTP grants and then hand off to the same redirect.
+ * Every method stays IN-PLACE — the app window never navigates to the
+ * hosted login page. Social opens the provider hop in a popup and completes
+ * over a `postMessage` handshake (`signinPopup`); wallet runs inline SIWx
+ * (`loginWithWallet`); email/password and OTP mint a PKCE-bound code via the
+ * IAM login endpoint. All four converge on the SAME PKCE `handleCallback`
+ * token exchange in `@hanzo/iam/browser`, which resolves every endpoint
+ * through `OIDC_PATHS`. `signinRedirect` remains only as an explicit
+ * standalone fallback — it is never the default here.
  *
  * @example
  * ```tsx
@@ -188,10 +192,11 @@ export interface LoginProps extends FlowProps {
   /** Called after a successful credential sign-in (pre-redirect). */
   onSuccess?: (token: string) => void;
   /**
-   * Social/wallet providers to render as buttons (e.g. ['google','github','apple']).
-   * Each starts the PKCE redirect with that provider. Defaults to none — the
-   * `/v1/iam/auth/methods` discovery endpoint is not relied upon (it is not
-   * deployed), so providers are passed explicitly per app.
+   * Social/wallet providers to render as buttons (e.g. ['google','github','wallet']).
+   * Each completes IN-PLACE (social via popup, wallet via inline SIWx) — never
+   * a redirect. Defaults to none — the `/v1/iam/auth/methods` discovery
+   * endpoint is not relied upon (it is not deployed), so providers are passed
+   * explicitly per app.
    */
   providers?: string[];
 }
@@ -200,10 +205,16 @@ export interface SocialButtonProps extends FlowProps {
   /** 'google' | 'github' | 'apple' (or a custom provider key). */
   provider: string;
   label?: string;
+  /** Called with the access token after the in-place popup sign-in completes. */
+  onSuccess?: (token: string) => void;
+  onError?: (error: Error) => void;
 }
 
 export interface WalletButtonProps extends FlowProps {
   label?: string;
+  /** Called with the access token after the inline SIWx sign-in completes. */
+  onSuccess?: (token: string) => void;
+  onError?: (error: Error) => void;
 }
 
 export interface EmailPasswordFormProps extends FlowProps {
@@ -223,35 +234,84 @@ export interface OTPStepProps extends FlowProps {
 }
 
 /**
- * Social sign-in button. Starts the canonical PKCE redirect with the
- * provider passed through as an authorize param — IAM routes the user to
- * the upstream provider and back to `redirectUri`.
+ * Social sign-in button. Stays IN-PLACE: opens the provider hop in a popup
+ * and completes via the `postMessage` handshake in `@hanzo/iam/browser`
+ * (`signinPopup`) — the app window never navigates to the hosted login page.
+ * Google/GitHub cannot be iframed, so a popup is the only embedded path.
+ * On success it runs the SAME PKCE `handleCallback` the credential form uses.
  */
 export const SocialButton: ComponentType<SocialButtonProps> = (props) => {
-  const onClick = useCallback(() => {
-    void makeIam(props).signinRedirect({ additionalParams: { provider: props.provider } });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onClick = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const token = await makeIam(props).signinPopup({
+        additionalParams: { provider: props.provider },
+      });
+      props.onSuccess?.(token.accessToken);
+    } catch (err) {
+      const e2 = err instanceof Error ? err : new Error(String(err));
+      setError(e2.message);
+      props.onError?.(e2);
+    } finally {
+      setBusy(false);
+    }
   }, [props.serverUrl, props.clientId, props.redirectUri, props.provider]);
 
   return h(
     "button",
-    { type: "button", onClick, "data-provider": props.provider, className: "hanzo-iam-btn" },
-    props.label ?? `Continue with ${props.provider}`,
+    {
+      type: "button",
+      onClick,
+      disabled: busy,
+      "data-provider": props.provider,
+      className: "hanzo-iam-btn",
+      title: error ?? undefined,
+    },
+    busy ? "Connecting…" : (props.label ?? `Continue with ${props.provider}`),
   );
 };
 
 /**
- * Wallet sign-in button. Starts the canonical PKCE redirect with
- * `provider=wallet` so IAM presents the wallet-signature challenge.
+ * Wallet sign-in button. Stays IN-PLACE: runs the inline SIWx (EIP-4361)
+ * flow in `@hanzo/iam/browser` (`loginWithWallet`) — nonce → wallet signs →
+ * verify → server returns a PKCE-bound code → `handleCallback`. No redirect,
+ * no loop. The server verifies the signature; the client never asserts an
+ * identity.
  */
 export const WalletButton: ComponentType<WalletButtonProps> = (props) => {
-  const onClick = useCallback(() => {
-    void makeIam(props).signinRedirect({ additionalParams: { provider: "wallet" } });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onClick = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const token = await makeIam(props).loginWithWallet();
+      props.onSuccess?.(token.accessToken);
+    } catch (err) {
+      const e2 = err instanceof Error ? err : new Error(String(err));
+      setError(e2.message);
+      props.onError?.(e2);
+    } finally {
+      setBusy(false);
+    }
   }, [props.serverUrl, props.clientId, props.redirectUri]);
 
   return h(
     "button",
-    { type: "button", onClick, "data-provider": "wallet", className: "hanzo-iam-btn" },
-    props.label ?? "Connect wallet",
+    {
+      type: "button",
+      onClick,
+      disabled: busy,
+      "data-provider": "wallet",
+      className: "hanzo-iam-btn",
+      title: error ?? undefined,
+    },
+    busy ? "Connecting…" : (props.label ?? "Connect wallet"),
   );
 };
 
@@ -415,12 +475,14 @@ export const Login: ComponentType<LoginProps> = (props) => {
   const children: ReactNode[] = [];
   if (props.brand) children.push(h("div", { key: "brand", className: "hanzo-iam-brand" }, props.brand));
 
-  // Social/wallet providers (explicit per app; PKCE redirect).
+  // Social/wallet providers (explicit per app). Both stay IN-PLACE: social
+  // via popup + postMessage, wallet via inline SIWx. Never a full-page
+  // redirect to the hosted login page.
   for (const provider of props.providers ?? []) {
     if (provider === "wallet") {
-      children.push(h(WalletButton, { key: "wallet", ...flow, label: props.labels?.wallet }));
+      children.push(h(WalletButton, { key: "wallet", ...flow, label: props.labels?.wallet, onSuccess: props.onSuccess }));
     } else {
-      children.push(h(SocialButton, { key: `social-${provider}`, ...flow, provider, label: socialLabel[provider] }));
+      children.push(h(SocialButton, { key: `social-${provider}`, ...flow, provider, label: socialLabel[provider], onSuccess: props.onSuccess }));
     }
   }
 

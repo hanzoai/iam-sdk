@@ -27,7 +27,16 @@ export { IamClient, IamApiError } from "./client.js";
 export { validateToken, clearJwksCache } from "./auth.js";
 
 // Browser PKCE auth (re-exported from separate entry point too)
-export { IAM, toIAMToken, type IAMConfig, type IAMUser, type IAMToken } from "./browser.js";
+export {
+  IAM,
+  toIAMToken,
+  completePopupSignin,
+  POPUP_WINDOW_NAME,
+  type IAMConfig,
+  type IAMUser,
+  type IAMToken,
+  type Eip1193Provider,
+} from "./browser.js";
 export { generatePKCEChallenge, generateState } from "./pkce.js";
 
 // Promoted functional auth surface — the ONE thing apps import.
