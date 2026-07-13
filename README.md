@@ -266,8 +266,13 @@ app.get("/api/me", (c) => {
 
 ### React (SPA) — `@hanzo/iam/react`
 
+`<Login>` is the DEFAULT login UI — one component, mounted embedded in your
+app. Every method stays IN-PLACE (the app window never navigates to the
+hosted login page): social via popup + `postMessage`, wallet via inline SIWx,
+email/password/OTP via a PKCE-bound code.
+
 ```tsx
-import { IamProvider, useIam, useOrganizations } from "@hanzo/iam/react";
+import { IamProvider, useIam, Login, completePopupSignin } from "@hanzo/iam/react";
 
 function App() {
   return (
@@ -282,21 +287,43 @@ function App() {
 }
 
 function Main() {
-  const { user, isAuthenticated, login, logout } = useIam();
-  const { currentOrg, switchOrg } = useOrganizations();
-  if (!isAuthenticated) return <button onClick={() => login()}>Log in</button>;
+  const { user, isAuthenticated } = useIam();
+  if (!isAuthenticated)
+    return (
+      <Login
+        serverUrl="https://iam.hanzo.ai"
+        clientId="my-app"
+        redirectUri={`${location.origin}/auth/callback`}
+        state=""
+        providers={["google", "github", "wallet"]}
+        onSuccess={(token) => { /* signed in, in-place */ }}
+      />
+    );
   return <div>Welcome, {user?.displayName}</div>;
 }
 ```
 
-Drop-in login + onboarding views live at `@hanzo/iam/views` (`Login`,
-`SocialButton`, `WalletButton`, `EmailPasswordForm`, `OTPStep`,
-`OnboardingFlow`, and the five onboarding step primitives).
+Mount the popup callback bridge on your `redirect_uri` route — one line. It
+hands the code back to the opener for popup sign-ins, and no-ops (returns
+`false`) for a normal navigation so your usual `handleCallback()` runs:
+
+```tsx
+// pages/auth/callback
+import { completePopupSignin, handleCallback } from "@hanzo/iam/browser";
+
+if (!completePopupSignin()) {
+  await handleCallback(); // normal top-level redirect callback
+}
+```
+
+`useIam().login()` (full-page `signinRedirect`) remains only as an explicit
+standalone fallback — prefer `<Login>` or `loginPopup` so login stays
+in-place.
 
 ### Browser (framework-free PKCE) — `@hanzo/iam` (or `@hanzo/iam/browser`)
 
 ```ts
-import { IAM } from "@hanzo/iam";
+import { IAM, completePopupSignin } from "@hanzo/iam";
 
 const iam = new IAM({
   serverUrl: "https://iam.hanzo.ai",
@@ -304,11 +331,25 @@ const iam = new IAM({
   redirectUri: "https://myapp.com/auth/callback",
 });
 
-await iam.signinRedirect();           // start PKCE redirect
-const token = await iam.handleCallback();  // on the callback route
-const access = await iam.getValidAccessToken(); // auto-refreshes
+// In-place social (Google/GitHub can't be iframed → popup + postMessage):
+const token = await iam.signinPopup({ additionalParams: { provider: "google" } });
+// In-place wallet (SIWx / EIP-4361, no redirect, no loop):
+const walletToken = await iam.loginWithWallet();
+// Standalone fallback only — full-page redirect to the hosted page:
+await iam.signinRedirect();
+const t = await iam.handleCallback();      // on the callback route
 await iam.logout();
 ```
+
+`signinPopup` verifies the callback message's `origin`, `source` tag, and
+`state` before it will touch the code; `completePopupSignin` (mounted on the
+`redirect_uri` route) posts back with `targetOrigin` pinned to its own origin,
+never `"*"`. A bare code is useless without the opener's PKCE verifier, which
+never leaves the opener.
+
+Drop-in login + onboarding views also live at `@hanzo/iam/views` (`Login`,
+`SocialButton`, `WalletButton`, `EmailPasswordForm`, `OTPStep`,
+`OnboardingFlow`, and the five onboarding step primitives).
 
 ### Passport.js — `@hanzo/iam/passport`
 
@@ -337,13 +378,13 @@ isValidEmail("user@example.com"); // true
 
 | Import | Surface |
 |--------|---------|
-| `@hanzo/iam` | `IamClient`, `IamApiError`, `validateToken`, `clearJwksCache`, `IAM`, `toIAMToken`, `generatePKCEChallenge`, `generateState`, `configureIam`, `startLogin`, `getLoginUrl`, `handleCallback`, `getSession`, `getUser`, `logout`, `OIDC_PATHS`, `IAM_PATHS`, `BRAND_SERVER_URLS`, `iamUrl`, `serverUrlForBrand`, all types |
+| `@hanzo/iam` | `IamClient`, `IamApiError`, `validateToken`, `clearJwksCache`, `IAM`, `toIAMToken`, `completePopupSignin`, `POPUP_WINDOW_NAME`, `generatePKCEChallenge`, `generateState`, `configureIam`, `startLogin`, `getLoginUrl`, `handleCallback`, `getSession`, `getUser`, `logout`, `OIDC_PATHS`, `IAM_PATHS`, `BRAND_SERVER_URLS`, `iamUrl`, `serverUrlForBrand`, all types |
 | `@hanzo/iam/paths` | `OIDC_PATHS`, `IAM_PATHS`, `BRAND_SERVER_URLS`, `iamUrl`, `trimServerUrl`, `serverUrlForBrand` |
 | `@hanzo/iam/session` | `configureIam`, `startLogin`, `getLoginUrl`, `handleCallback`, `getSession`, `getUser`, `logout`, `getIam` |
 | `@hanzo/iam/server` | `getServerSession`, `withSession`, `getBearerToken`, `SESSION_COOKIE`, `ServerSession` |
 | `@hanzo/iam/auth` | `validateToken`, `clearJwksCache` |
-| `@hanzo/iam/browser` | `IAM`, `toIAMToken`, `IAMConfig`, `IAMUser`, `IAMToken` |
-| `@hanzo/iam/react` | `IamProvider`, `useIam`, `useOrganizations`, `useIamToken`, `OrgProjectSwitcher` |
+| `@hanzo/iam/browser` | `IAM` (`signinPopup`, `loginWithWallet`, `signinRedirect`, `handleCallback`), `completePopupSignin`, `POPUP_WINDOW_NAME`, `toIAMToken`, `IAMConfig`, `IAMUser`, `IAMToken`, `Eip1193Provider` |
+| `@hanzo/iam/react` | `IamProvider`, `useIam`, `useOrganizations`, `useIamToken`, `OrgProjectSwitcher`, `Login`, `SocialButton`, `WalletButton`, `EmailPasswordForm`, `OTPStep`, `OnboardingFlow`, `useAuthMethods`, `completePopupSignin` |
 | `@hanzo/iam/views` | `Login`, `SocialButton`, `WalletButton`, `EmailPasswordForm`, `OTPStep`, `OnboardingFlow`, `IdentityStep`, `DocumentsStep`, `BiometricStep`, `ScreenStep`, `SubmitStep`, `useAuthMethods` |
 | `@hanzo/iam/betterauth` | `iamProvider` |
 | `@hanzo/iam/nextauth` | `HanzoIamProvider`, `IamProvider` (alias), `HanzoIamProfile` |

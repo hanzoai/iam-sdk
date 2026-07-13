@@ -23,7 +23,10 @@ legacy `/oauth/*` and no `/api/login/*`.
 
 `IAM_PATHS` holds the non-OIDC IAM-app endpoints used by the embedded
 views: `authMethods` = `/v1/iam/auth/methods`, `onboarding` =
-`/v1/iam/onboarding`.
+`/v1/iam/onboarding`, `login` = `/v1/iam/login`, `sendCode` =
+`/v1/iam/send-verification-code`, `signup` = `/v1/iam/signup`, and the SIWx
+wallet pair `web3Nonce` = `/v1/iam/web3/nonce`, `web3Verify` =
+`/v1/iam/web3/verify`.
 
 `BRAND_SERVER_URLS` / `serverUrlForBrand(brand)` is the ONE brand→origin
 map (white-label is host-based; one IAM serves all brands): `hanzo` →
@@ -101,10 +104,38 @@ imports — they use structural types so no framework is a dependency):
   Header reader duck-types both Web `Request` (`headers.get`) and Node
   `IncomingMessage` (headers record).
 - `src/views.tsx` — REAL React components (built with `createElement`, no
-  JSX syntax, so no `jsx` runtime needed at build). `Login` reads
-  `IAM_PATHS.authMethods` and renders only enabled methods. The prior file
+  JSX syntax, so no `jsx` runtime needed at build). `Login` renders only the
+  providers it is passed and is THE default login UI (also re-exported from
+  the `/react` entry). Every method stays IN-PLACE — no full-page redirect to
+  the hosted page: `SocialButton` → `IAM#signinPopup` (popup + `postMessage`;
+  Google/GitHub can't be iframed), `WalletButton` → `IAM#loginWithWallet`
+  (inline SIWx/EIP-4361, no loop), email/password/OTP → PKCE-bound
+  `/v1/iam/login` code. All four converge on the SAME PKCE `handleCallback`.
+  `signinRedirect` is only an explicit standalone fallback. The prior file
   was `export declare const`-only → an empty runtime module; that
   regression is locked out by `views.test.ts`.
+- `src/browser.ts` popup+wallet (v0.13.5) — `IAM#signinPopup` completes over
+  a one-shot `postMessage` handshake with THREE mandatory gates: `event.origin`
+  === the `redirect_uri` origin (allowlist), `data.source === "hanzo-iam"`,
+  and `data.state` === the state THIS call generated (CSRF). It tears the
+  listener + popup down after the first accepted message and never logs the
+  code. `completePopupSignin()` is the popup callback-page half — mount it on
+  the `redirect_uri` route; it gates on the reserved `window.name`
+  (`hanzo_iam_login`, set by `signinPopup`, survives the provider hop) so it is
+  inert on any ordinary same-origin page that merely carries `?code` + an
+  `opener`, then `postMessage`s `{code,state}` to the opener with `targetOrigin`
+  pinned to its OWN origin (never `"*"`), else returns `false`.
+  `IAM#loginWithWallet` runs GET `web3/nonce` → server message signed verbatim
+  via `personal_sign` → POST `web3/verify` (server RECOVERS the signer; the
+  client `address` is a hint, never trusted) → PKCE-bound code → `handleCallback`.
+- PKCE transaction storage is PER-ATTEMPT: the verifier lives under
+  `hanzo_iam_code_verifier:<state>` (via `stashPkce`), so a double-click / racing
+  `signinSilent` / re-run React effect can't stomp another attempt's verifier
+  (legacy single slots kept as latest-attempt pointer + fallback; `clearTokens`
+  sweeps all namespaced slots). `handleCallback` resolves the verifier by the
+  returned state — its presence structurally proves we issued that state (CSRF),
+  and a MISSING saved state on the legacy path is itself a rejection (never a
+  soft-skip). All locked by `browser.test.ts`.
 - `src/betterauth.ts` — `iamProvider(config)` returns a real `genericOAuth`
   config entry: `{ providerId:"hanzo", authorizationUrl, tokenUrl,
   userInfoUrl, clientId, clientSecret, scopes, pkce:true,
