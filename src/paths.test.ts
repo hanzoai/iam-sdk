@@ -34,6 +34,11 @@ test("IAM_PATHS for non-OIDC endpoints sit under /v1/iam", () => {
   assert.equal(IAM_PATHS.onboarding, "/v1/iam/onboarding");
 });
 
+test("IAM_PATHS web3 SIWx endpoints are the canonical /v1/iam/web3/* values", () => {
+  assert.equal(IAM_PATHS.web3Nonce, "/v1/iam/web3/nonce");
+  assert.equal(IAM_PATHS.web3Verify, "/v1/iam/web3/verify");
+});
+
 test("iamUrl concatenates origin + canonical path, trimming slashes", () => {
   assert.equal(iamUrl("https://iam.hanzo.ai", "token"), "https://iam.hanzo.ai/v1/iam/oauth/token");
   assert.equal(iamUrl("https://lux.id/", "authorize"), "https://lux.id/v1/iam/oauth/authorize");

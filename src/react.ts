@@ -1,12 +1,17 @@
 /**
  * React bindings for @hanzo/iam.
  *
- * Provides a context provider, auth hooks, and org/project switching
- * that can be dropped into any React application.
+ * Provides a context provider, auth hooks, org/project switching, and the
+ * embedded `<Login>` component — the DEFAULT login UI apps should mount.
+ * `<Login>` (re-exported here from `@hanzo/iam/views`) keeps every method
+ * in-place: social via popup + postMessage, wallet via inline SIWx,
+ * email/password/OTP via PKCE-bound code. It never full-page redirects to
+ * the hosted login page. `signinRedirect` (surfaced as `useIam().login`)
+ * remains available only as an explicit standalone fallback.
  *
  * @example
  * ```tsx
- * import { IamProvider, useIam, useOrganizations } from '@hanzo/iam/react'
+ * import { IamProvider, Login, useIam } from '@hanzo/iam/react'
  *
  * function App() {
  *   return (
@@ -21,10 +26,12 @@
  * }
  *
  * function MyApp() {
- *   const { user, isAuthenticated, login, logout } = useIam()
- *   const { organizations, currentOrg, switchOrg } = useOrganizations()
- *
- *   if (!isAuthenticated) return <button onClick={() => login()}>Log in</button>
+ *   const { user, isAuthenticated } = useIam()
+ *   // Embedded, in-place — the default. Not a redirect.
+ *   if (!isAuthenticated)
+ *     return <Login serverUrl="https://iam.hanzo.ai" clientId="my-app"
+ *                   redirectUri={`${location.origin}/auth/callback`} state=""
+ *                   providers={['google','github','wallet']} />
  *   return <div>Welcome, {user?.displayName}</div>
  * }
  * ```
@@ -75,9 +82,13 @@ export interface IamContextValue {
   isLoading: boolean;
   /** Current access token (null if not authenticated). */
   accessToken: string | null;
-  /** Redirect to IAM login page. */
+  /**
+   * Explicit standalone FALLBACK: full-page redirect to the hosted login
+   * page. Not the default — prefer the embedded `<Login>` component or
+   * `loginPopup` so login stays in-place.
+   */
   login: (params?: { additionalParams?: Record<string, string> }) => Promise<void>;
-  /** Open IAM login in a popup. */
+  /** In-place social login via popup + postMessage. Resolves once signed in. */
   loginPopup: (params?: { width?: number; height?: number }) => Promise<void>;
   /** Handle OAuth callback — call on your /auth/callback route. */
   handleCallback: (callbackUrl?: string) => Promise<IAMToken>;
@@ -629,3 +640,35 @@ export function OrgProjectSwitcher({
       : null,
   );
 }
+
+// ---------------------------------------------------------------------------
+// Embedded login surface — the DEFAULT the /react entry hands apps.
+//
+// `<Login>` is the one login UI: in-place social (popup + postMessage),
+// in-place wallet (inline SIWx), and PKCE-bound email/password/OTP. Apps
+// import it straight from "@hanzo/iam/react" instead of reaching for
+// `signinRedirect`. `completePopupSignin` is the popup callback-page bridge,
+// re-exported so the same entry covers the whole flow.
+// ---------------------------------------------------------------------------
+
+export {
+  Login,
+  SocialButton,
+  WalletButton,
+  EmailPasswordForm,
+  OTPStep,
+  useAuthMethods,
+  OnboardingFlow,
+  type LoginProps,
+  type SocialButtonProps,
+  type WalletButtonProps,
+  type EmailPasswordFormProps,
+  type OTPStepProps,
+  type AuthMethod,
+  type AuthMethodKind,
+  type MethodsResponse,
+  type MethodsView,
+  type FlowProps,
+} from "./views.js";
+
+export { completePopupSignin } from "./browser.js";

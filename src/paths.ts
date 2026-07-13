@@ -57,6 +57,21 @@ export const IAM_PATHS = {
   sendCode: "/v1/iam/send-verification-code",
   /** Account registration. */
   signup: "/v1/iam/signup",
+  /**
+   * Sign-In-with-X (SIWx / EIP-4361) nonce endpoint. Issues a server-owned,
+   * single-use nonce (and the exact message to sign) so the wallet signature
+   * cannot be replayed. The client NEVER invents the challenge — the server
+   * is the authority over the message content and the nonce lifetime.
+   */
+  web3Nonce: "/v1/iam/web3/nonce",
+  /**
+   * SIWx verify endpoint. The client POSTs the exact signed message +
+   * signature (and a PKCE `code_challenge`); the server recovers the signer
+   * from the signature (never trusting a client-supplied address), validates
+   * the nonce, and returns a PKCE-bound authorization `code`. The SAME
+   * RFC 7636 exchange then completes it through `handleCallback`.
+   */
+  web3Verify: "/v1/iam/web3/verify",
 } as const;
 
 export type IamPathKey = keyof typeof IAM_PATHS;

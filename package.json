@@ -1,6 +1,6 @@
 {
   "name": "@hanzo/iam",
-  "version": "0.13.2",
+  "version": "0.13.6",
   "description": "TypeScript SDK for Hanzo IAM — OIDC auth, JWT validation, OAuth2 PKCE, user/org/project APIs",
   "type": "module",
   "main": "dist/index.cjs",
