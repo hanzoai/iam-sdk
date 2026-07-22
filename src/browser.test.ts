@@ -525,3 +525,36 @@ test("storage: a fresh login sweeps ORPHANED verifier slots but never a live sib
   assert.equal(t2.accessToken, "at-123");
   assert.equal(lastTokenBody?.get("code"), "c-next");
 });
+
+// ============================================================================
+// isTokenExpired — unknown expiry is NOT "expired" (v0.13.7). Decomplect: the
+// SERVER gates session validity; `expires_at` is only a proactive-refresh hint,
+// learned solely from `expires_in`. Regression guard for the console silent-SSO
+// login loop — a fresh, server-valid token whose expiry was never learned must
+// be USED, not discarded into a refresh/redirect spiral.
+// ============================================================================
+
+test("isTokenExpired: unknown expiry (no expires_at stored) is NOT expired", () => {
+  const iam = newIam();
+  // The token response carried no `expires_in`, so nothing was ever stored.
+  assert.equal(storage.getItem("hanzo_iam_expires_at"), null);
+  assert.equal(iam.isTokenExpired(), false, "unknown expiry must not read as expired");
+});
+
+test("isTokenExpired: a KNOWN expiry still gates correctly (proactive path intact)", () => {
+  const iam = newIam();
+  storage.setItem("hanzo_iam_expires_at", String(Date.now() - 1000));
+  assert.equal(iam.isTokenExpired(), true, "a known, elapsed expiry is expired");
+  storage.setItem("hanzo_iam_expires_at", String(Date.now() + 60_000));
+  assert.equal(iam.isTokenExpired(), false, "a known, future expiry is not expired");
+});
+
+test("getValidAccessToken: returns a fresh server-valid token whose expiry was never learned (login-loop guard)", async () => {
+  const iam = newIam();
+  // The exact loop scenario: an access token is present but the server sent no
+  // `expires_in`, so no `expires_at` exists. It must be RETURNED (used), not
+  // discarded — with the old `unknown -> expired`, getValidAccessToken() went
+  // null with no refresh token and the app looped sign-in.
+  storage.setItem("hanzo_iam_access_token", "fresh-server-valid");
+  assert.equal(await iam.getValidAccessToken(), "fresh-server-valid");
+});
