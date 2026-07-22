@@ -925,10 +925,18 @@ export class IAM {
     return this.storage.getItem(KEY_ID_TOKEN);
   }
 
-  /** Check if the stored access token is expired. */
+  /** Whether the stored access token is KNOWN to be past its expiry (a proactive-refresh hint). */
   isTokenExpired(): boolean {
     const expiresAt = this.storage.getItem(KEY_EXPIRES_AT);
-    if (!expiresAt) return true;
+    // Unknown expiry is NOT "expired". `expires_at` is only a PROACTIVE-refresh
+    // hint, learned solely when the token response carried `expires_in` (see
+    // storeTokens). When the server omits it, expiry is simply unknown here — and
+    // the SERVER, not this client, is the authority on validity: the reactive
+    // 401 -> refresh path in getValidAccessToken()/refreshAccessToken() handles a
+    // token it rejects. Returning `true` on unknown expiry discards a fresh,
+    // server-valid token -> getValidAccessToken() null -> silent-SSO redirect loop.
+    // This gate governs proactive refresh only, never the session itself.
+    if (!expiresAt) return false;
     return Date.now() >= Number(expiresAt);
   }
 
