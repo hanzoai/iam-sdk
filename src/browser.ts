@@ -192,6 +192,15 @@ export class IAM {
    * localStorage so it survives the OAuth redirect; see resolveTxStorage. */
   private readonly txStorage: Storage;
   private discoveryCache: OidcDiscovery | null = null;
+  /**
+   * Idempotency guard for {@link handleCallback}. Holds the in-flight (or
+   * settled-success) PKCE exchange promise keyed by the OAuth `code`, so a
+   * repeated or concurrent call for the SAME callback shares ONE token
+   * exchange instead of firing a second — which would fail, because the code
+   * is single-use and the verifier is consumed before the fetch. Cleared on
+   * rejection so a genuine retry can run afresh. See {@link handleCallback}.
+   */
+  private callbackInFlight: { code: string; promise: Promise<IAMToken> } | null = null;
 
   constructor(config: IAMConfig) {
     this.config = config;
@@ -484,6 +493,47 @@ export class IAM {
       throw new Error("Missing authorization code in callback URL");
     }
 
+    // Idempotency — the ONE-WAY guard that protects every consumer. The OAuth
+    // `code` is single-use and the PKCE verifier is consumed from storage
+    // BEFORE the token fetch, so a DOUBLE invocation of the same callback
+    // (React StrictMode's double-invoked effect, a re-running effect, or two
+    // concurrent callers) would otherwise fire a second exchange that finds the
+    // code already redeemed / verifier gone and THROW — surfacing "sign-in
+    // failed" even though the first exchange already succeeded. Share ONE
+    // exchange per `code`: a repeated or concurrent call returns the SAME
+    // promise, so the verifier read + removal + token POST run exactly once.
+    //
+    // In-flight vs settled: cache the promise while it runs AND keep it once it
+    // RESOLVES (idempotent success — a later call returns the cached token with
+    // no second fetch). DROP the cache if it REJECTS, so a genuine retry after
+    // the user re-initiates sign-in runs a fresh exchange rather than being
+    // pinned forever to the first failure.
+    const cached = this.callbackInFlight;
+    if (cached && cached.code === code) {
+      return cached.promise;
+    }
+
+    const promise = this.exchangeCode(url, code);
+    this.callbackInFlight = { code, promise };
+    // Clear ONLY on reject, and ONLY if we're still the current attempt — never
+    // clobber a newer in-flight call that has replaced this one.
+    promise.catch(() => {
+      if (this.callbackInFlight?.promise === promise) {
+        this.callbackInFlight = null;
+      }
+    });
+    return promise;
+  }
+
+  /**
+   * The one-shot PKCE code→token exchange — split out of {@link handleCallback}
+   * so the public method can dedupe and cache the resulting promise. Runs
+   * EXACTLY once per invocation: consume the per-attempt PKCE verifier, POST
+   * the `authorization_code` grant, store the tokens. Every first-call
+   * semantic lives here unchanged — CSRF/state enforcement, the missing-
+   * verifier throw, token storage, and the return value.
+   */
+  private async exchangeCode(url: URL, code: string): Promise<IAMToken> {
     const state = url.searchParams.get("state");
 
     // Resolve the PKCE verifier for THIS attempt. It lives in txStorage
