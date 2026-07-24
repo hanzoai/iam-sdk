@@ -1,3 +1,5 @@
+> **MIRROR — do not publish from here.** The canonical `@hanzo/iam` source is **[hanzo-js/iam](https://github.com/hanzo-js/iam)** (the JS-SDK org home). Publishing happens there. This repo is retained for history only.
+
 # @hanzo/iam
 
 The one-way TypeScript SDK for authenticating against **Hanzo IAM** — a
