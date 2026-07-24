@@ -112,6 +112,7 @@ const SIWE_MESSAGE =
 let server: Server;
 let origin: string;
 let lastTokenBody: URLSearchParams | null = null;
+let tokenHits = 0; // how many times the token endpoint was actually POSTed
 let lastNonceUrl: string | null = null;
 let lastVerify: { url: string; body: Record<string, unknown> } | null = null;
 
@@ -135,6 +136,7 @@ before(async () => {
       let raw = "";
       req.on("data", (c) => (raw += c));
       req.on("end", () => {
+        tokenHits += 1;
         lastTokenBody = new URLSearchParams(raw);
         res.setHeader("Content-Type", "application/json");
         res.end(
@@ -177,6 +179,7 @@ let storage: MemoryStorage;
 beforeEach(() => {
   storage = new MemoryStorage();
   lastTokenBody = null;
+  tokenHits = 0;
   lastNonceUrl = null;
   lastVerify = null;
 });
@@ -448,6 +451,79 @@ test("handleCallback: rejects a callback with no stored transaction — no soft-
     /state mismatch/i,
   );
   assert.equal(lastTokenBody, null, "no token exchange without a stored transaction");
+});
+
+// ============================================================================
+// handleCallback — IDEMPOTENCY (v0.13.8). The `code` is single-use and the PKCE
+// verifier is consumed before the token fetch, so a DOUBLE invocation of the
+// same callback (React StrictMode double-invoke, a re-run effect, concurrent
+// callers) must NOT fire a second exchange. One exchange per `code`; a repeat
+// returns the SAME promise. A real failure clears the guard so a retry can run.
+// ============================================================================
+
+test("handleCallback: concurrent double-invoke runs the token exchange EXACTLY once (idempotent)", async () => {
+  const iam = newIam();
+  const url = new URL(await iam.getSigninUrl());
+  const state = url.searchParams.get("state") as string;
+  const cb = `${REDIRECT}?code=dup-code&state=${state}`;
+
+  // Fire twice synchronously — the StrictMode / re-run-effect shape.
+  const p1 = iam.handleCallback(cb);
+  const p2 = iam.handleCallback(cb);
+
+  const [t1, t2] = await Promise.all([p1, p2]);
+  assert.equal(t1.accessToken, "at-123");
+  assert.equal(t2.accessToken, "at-123");
+  assert.equal(t1, t2, "both calls resolve to the SAME token (shared promise)");
+  assert.equal(tokenHits, 1, "the token endpoint was hit exactly once");
+});
+
+test("handleCallback: a sequential second call after success returns the cached token with no second fetch", async () => {
+  const iam = newIam();
+  const url = new URL(await iam.getSigninUrl());
+  const state = url.searchParams.get("state") as string;
+  const cb = `${REDIRECT}?code=once-code&state=${state}`;
+
+  const first = await iam.handleCallback(cb);
+  assert.equal(first.accessToken, "at-123");
+  assert.equal(tokenHits, 1);
+
+  // The verifier slot is already consumed; without idempotency this second call
+  // would throw (missing verifier / state mismatch). It must instead return the
+  // cached success without touching the token endpoint again.
+  const second = await iam.handleCallback(cb);
+  assert.equal(second.accessToken, "at-123");
+  assert.equal(second, first, "second call returns the cached settled result");
+  assert.equal(tokenHits, 1, "no second token exchange after a cached success");
+});
+
+test("handleCallback: a REJECTED first attempt clears the guard so a fresh, valid retry succeeds", async () => {
+  const iam = newIam();
+
+  // First attempt: no stored transaction → rejects (state mismatch), and the
+  // idempotency guard must NOT pin this failure.
+  await assert.rejects(
+    () => iam.handleCallback(`${REDIRECT}?code=retry-code&state=nope`),
+    /state mismatch/i,
+  );
+  assert.equal(tokenHits, 0, "no token exchange on the failed attempt");
+
+  // The user re-initiates sign-in (fresh PKCE), then a real callback arrives —
+  // even reusing the same `code` value, the retry runs a fresh exchange.
+  const url = new URL(await iam.getSigninUrl());
+  const state = url.searchParams.get("state") as string;
+  const token = await iam.handleCallback(`${REDIRECT}?code=retry-code&state=${state}`);
+  assert.equal(token.accessToken, "at-123");
+  assert.equal(tokenHits, 1, "the retry ran a fresh exchange (guard was cleared on reject)");
+});
+
+test("handleCallback: still throws on the first call for a missing authorization code", async () => {
+  const iam = newIam();
+  await assert.rejects(
+    () => iam.handleCallback(`${REDIRECT}?state=whatever`),
+    /Missing authorization code/i,
+  );
+  assert.equal(tokenHits, 0);
 });
 
 test("clearTokens: sweeps every per-attempt PKCE verifier slot", async () => {
