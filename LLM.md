@@ -1,179 +1,47 @@
 # iam-sdk — AI Assistant Context
 
-# @hanzo/iam
+This repo is **one Go module** and nothing else:
+`github.com/hanzoai/iam-sdk/go`, whose only package is `go/tenant`.
 
-The one-way TypeScript SDK for authenticating JS apps (Hanzo / Lux / Zoo /
-Bootnode) against **Hanzo IAM**, a Casdoor-derived OIDC provider served
-per-brand from a configurable `serverUrl`.
+## What lives here
 
-## The law: one source of truth for paths
+`tenant` resolves the caller's tenant identity from an HTTP request inside the
+mesh. The IAM gateway validates the JWT and injects `X-Org-Id` / `X-User-Id` /
+`X-User-Email`, stripping any client-supplied copies before forwarding — that
+strip is why the headers can be trusted here. Surface:
 
-`src/paths.ts` exports `OIDC_PATHS` — the ONLY OIDC paths. Every module
-references it; **no path string is written anywhere else**. There is no
-legacy `/oauth/*` and no `/api/login/*`.
+| symbol | role |
+|---|---|
+| `Identity` | `{Org, UserID, Email}` — the authenticated caller |
+| `Verifier` | `Verify(*http.Request) (Identity, error)`; the test seam |
+| `HeaderVerifier` | production wiring; reads the three `X-*` headers |
+| `ErrUnauthenticated` | returned when no identity is present |
+| `Require(v, next)` | middleware: verify → stash on ctx → next; 401 on failure |
+| `WithIdentity` / `FromContext` | the ctx pair |
 
-| key | path |
-|-----|------|
-| discovery | `/.well-known/openid-configuration` |
-| authorize | `/v1/iam/oauth/authorize` |
-| token | `/v1/iam/oauth/token` |
-| userinfo | `/v1/iam/oauth/userinfo` |
-| jwks | `/v1/iam/.well-known/jwks` |
-| logout | `/v1/iam/oauth/logout` |
+`HeaderVerifier.Verify` requires **both** `Org` and `UserID` to be non-empty.
+Email is optional. Do not relax that: it is the only check standing between a
+header-less request and a handler that assumes a tenant.
 
-`IAM_PATHS` holds the non-OIDC IAM-app endpoints used by the embedded
-views: `authMethods` = `/v1/iam/auth/methods`, `onboarding` =
-`/v1/iam/onboarding`, `login` = `/v1/iam/login`, `sendCode` =
-`/v1/iam/send-verification-code`, `signup` = `/v1/iam/signup`, and the SIWx
-wallet pair `web3Nonce` = `/v1/iam/web3/nonce`, `web3Verify` =
-`/v1/iam/web3/verify`.
+## What does NOT live here — read this before "restoring" anything
 
-`BRAND_SERVER_URLS` / `serverUrlForBrand(brand)` is the ONE brand→origin
-map (white-label is host-based; one IAM serves all brands): `hanzo` →
-`iam.hanzo.ai`, `lux` → `lux.id`, `zoo` → `zoo.id`, `bootnode` →
-`id.bootno.de`, `pars` → `pars.id`. Adapters take a `serverUrl`; apps that
-prefer a brand key resolve it here rather than hard-coding a hostname.
+`@hanzo/iam`, the TypeScript SDK, is published from
+**hanzo-js/iam** and only from there. This repo published that npm name through
+0.13.8, in parallel with hanzo-js/iam, which is the duplication that was
+collapsed: two repos, one npm name, interleaved releases, and because 0.21.x >
+0.13.x any `^0.13` consumer that widened its range silently changed source repo.
 
-## The one-way model (HIP-0111)
+The TypeScript source, `package.json`, `tsup.config.ts`, `tsconfig.json`,
+`pnpm-lock.yaml` and the publish workflow were **deleted**, not disabled. If you
+are looking for them, they are at hanzo-js/iam — where `src/identity.ts`
+(`resolveIdentity` / `membershipsFromToken` / `claimsOf` / `looksLikeId`) also
+lives; that module never existed here. Do not re-add a package manifest to this
+repo.
 
-IAM is adapted TO each framework; frameworks keep their NATIVE auth routes
-(NextAuth/Auth.js hard-mount `/api/auth` or `/auth` — never moved to
-`/v1`; moving them caused a prod outage). Each adapter is the framework's
-native provider/middleware shape whose authorize/token/userinfo resolve
-through `paths.ts` to `/v1/iam/oauth/*`. **Every endpoint in every adapter
-is built with `iamUrl(...)` / `OIDC_PATHS` — grep-proven, no path string
-elsewhere, no `discoveryUrl`-only config.**
+The Go module keeps the `iam-sdk` name because for Go the repo name *is* the
+import path — renaming the repo renames the module. Consumers: `hanzo/agents/
+control-plane` (via a local `replace`).
 
-**Gotcha that drives all of this:** IAM returns a `200 text/html` SPA for
-any unregistered path. A wrong path yields HTML, not a 404 — silent
-breakage. So: hit the exact paths, and never let a failed discovery fall
-back to a wrong one. The hard-coded fallbacks in `browser.ts` use the
-same canonical paths.
+## Gate
 
-## Rules baked into the SDK
-
-- **PKCE S256 always on.** `src/pkce.ts` verifier = base64url of 32
-  `crypto.getRandomValues` bytes (256-bit entropy), challenge = base64url
-  SHA-256 (S256). `generateState` is the same 256-bit primitive.
-- **`validateToken` fails closed on audience.** `aud` must equal
-  `clientId` → else `iam_audience_invalid`. Opt out only with
-  `config.allowMissingAudience === true`. No silent retry. Branches on
-  jose error *codes* (`ERR_JWT_EXPIRED`, `ERR_JWT_CLAIM_VALIDATION_FAILED`
-  + `claim === "aud"`), not message strings.
-- **One name per thing.** Canonical = `Iam*` classes (`IamClient`,
-  `IamApiError`, `IamContext`) + `hanzo_iam_` storage prefix + clean type
-  names (`Config`, `User`, `Organization`, …). Exception: the NextAuth
-  provider's canonical export is `HanzoIamProvider` (+ `HanzoIamProfile`
-  type) because that is what `console` imports; `IamProvider` is a stable
-  alias to the same function. The React provider component is `IamProvider`
-  (different module, different thing). Do not reintroduce other `Hanzo*`
-  aliases.
-
-## Subpath entries (tsup `entry[]` ↔ package.json `exports`)
-
-`index`, `paths`, `auth`, `browser`, `server`, `types`, `react`, `views`,
-`nextauth`, `sveltekit`, `remix`, `express`, `hono`, `passport`,
-`betterauth`, `validation`. Dual ESM (`.js`) + CJS (`.cjs`) +
-`.d.ts`/`.d.cts` for each. **No `billing`** — it was a throwing tombstone;
-deleted from src, tsup, and exports. Billing lives in `@hanzo/commerce`.
-
-Framework adapters (all thin, all → `paths.ts`, zero runtime framework
-imports — they use structural types so no framework is a dependency):
-- `src/nextauth.ts` — `HanzoIamProvider(opts)` (alias `IamProvider`) →
-  NextAuth/Auth.js `OAuthConfig` with **explicit** `authorization`/`token`/
-  `userinfo`/`jwks_endpoint` (NOT `wellKnown`/discovery — that would risk
-  the SPA catch-all), default `id:"hanzo-iam"`, `client_secret_basic`,
-  `checks:["state","pkce"]`. Exports type `HanzoIamProfile`. `console`
-  spreads it and overrides `id`/`name`/`profile`.
-- `src/sveltekit.ts` — re-exports the nextauth provider as `HanzoIam` for
-  `@auth/core` hosts (SvelteKit/SolidStart/@auth/express). Same builder.
-- `src/remix.ts` — `hanzoIamStrategyOptions(opts)` (explicit endpoints +
-  `codeChallengeMethod:"S256"`) for `remix-auth-oauth2`'s `OAuth2Strategy`
-  (peer, constructed by the app) + `requireSession`/`getSession` loader
-  guards over `server.ts`.
-- `src/express.ts` — `requireAuth(config)` middleware (401 + attach
-  `req.iamSession`), `getSession` (optional), `getIamSession(req)` (typed
-  read). Connect/Express/raw-http req.headers record.
-- `src/hono.ts` — `requireAuth(config)` middleware (401 + `c.set`),
-  `getSession`, `getIamSession(c)`. Uses `c.req.raw` Web Request.
-
-- `src/server.ts` — framework-agnostic SSR helper. `getServerSession(req,
-  config, opts?)` → `{ userId, owner, email?, claims } | null`. Reads
-  `Authorization: Bearer …` then the `hanzo_iam_access_token` cookie.
-  `withSession(config, handler, opts?)` guards a Web-`Response` route.
-  Header reader duck-types both Web `Request` (`headers.get`) and Node
-  `IncomingMessage` (headers record).
-- `src/views.tsx` — REAL React components (built with `createElement`, no
-  JSX syntax, so no `jsx` runtime needed at build). `Login` renders only the
-  providers it is passed and is THE default login UI (also re-exported from
-  the `/react` entry). Every method stays IN-PLACE — no full-page redirect to
-  the hosted page: `SocialButton` → `IAM#signinPopup` (popup + `postMessage`;
-  Google/GitHub can't be iframed), `WalletButton` → `IAM#loginWithWallet`
-  (inline SIWx/EIP-4361, no loop), email/password/OTP → PKCE-bound
-  `/v1/iam/login` code. All four converge on the SAME PKCE `handleCallback`.
-  `signinRedirect` is only an explicit standalone fallback. The prior file
-  was `export declare const`-only → an empty runtime module; that
-  regression is locked out by `views.test.ts`.
-- `src/browser.ts` popup+wallet (v0.13.5) — `IAM#signinPopup` completes over
-  a one-shot `postMessage` handshake with THREE mandatory gates: `event.origin`
-  === the `redirect_uri` origin (allowlist), `data.source === "hanzo-iam"`,
-  and `data.state` === the state THIS call generated (CSRF). It tears the
-  listener + popup down after the first accepted message and never logs the
-  code. `completePopupSignin()` is the popup callback-page half — mount it on
-  the `redirect_uri` route; it gates on the reserved `window.name`
-  (`hanzo_iam_login`, set by `signinPopup`, survives the provider hop) so it is
-  inert on any ordinary same-origin page that merely carries `?code` + an
-  `opener`, then `postMessage`s `{code,state}` to the opener with `targetOrigin`
-  pinned to its OWN origin (never `"*"`), else returns `false`.
-  `IAM#loginWithWallet` runs GET `web3/nonce` → server message signed verbatim
-  via `personal_sign` → POST `web3/verify` (server RECOVERS the signer; the
-  client `address` is a hint, never trusted) → PKCE-bound code → `handleCallback`.
-- PKCE transaction storage (v0.13.6 reconciliation) is BOTH durable AND
-  per-attempt. It lives in `txStorage` = `localStorage` (via `resolveTxStorage`,
-  probed at construct; falls back to the configured `storage` when localStorage
-  is unavailable — SSR/privacy) so it survives the full-page OAuth redirect and
-  Safari/WebKit ITP; and it is keyed per attempt as
-  `hanzo_iam_code_verifier:<state>` (via `stashPkce`) so a double-click / racing
-  `signinSilent` / re-run React effect can't stomp another attempt's verifier.
-  Because localStorage persists across tabs/abandoned redirects, each slot value
-  is stamped `${issuedAtMs}.${verifier}` and `stashPkce` opportunistically
-  sweeps slots older than `VERIFIER_TTL_MS` (15m) — a live concurrent sibling
-  (seconds old) is NEVER swept; `clearTokens` sweeps ALL slots (both stores).
-  `handleCallback` resolves the verifier by the returned state from `txStorage`
-  (then `storage` as a transition fallback), decoding the stamp — its presence
-  structurally proves we issued that state (CSRF), and a MISSING saved state on
-  the legacy path is itself a rejection (never a soft-skip). Redirect-survival +
-  concurrent isolation + orphan-sweep all locked by `browser.test.ts`.
-- `validateToken` (from main) honors explicit `config.jwksUri` + `config.issuer`
-  overrides (in-cluster / split-horizon: pod can't reach the public IAM origin),
-  bypassing discovery; otherwise `resolveJwksUri` degrades to the canonical
-  `/v1/iam/.well-known/jwks` on any discovery failure. Both preserved.
-- `src/betterauth.ts` — `iamProvider(config)` returns a real `genericOAuth`
-  config entry: `{ providerId:"hanzo", authorizationUrl, tokenUrl,
-  userInfoUrl, clientId, clientSecret, scopes, pkce:true,
-  authentication:"basic" }`. Usage:
-  `genericOAuth({ config: [iamProvider({...})] })`. No `discoveryUrl`.
-
-## Build / test
-
-- Node 26 + pnpm 9. `pnpm install && pnpm build` (tsup).
-- Tests: `pnpm test` → `node --test --import tsx 'src/**/*.test.ts'`.
-  `tsx` is a devDependency (native Node TS strips types but does NOT
-  rewrite `./x.js` → `./x.ts`, so the test runner needs tsx).
-- `node_modules/.bin/tsc --noEmit` must stay green (`tsconfig.json` sets
-  `jsx: react-jsx` so the `.tsx` typechecks when imported from a test).
-- 73 tests cover: locked paths + brand map, `validateToken` matrix (happy /
-  expired / bad-aud-fails / missing-aud-fails / allowMissingAudience /
-  tampered), PKCE ≥256-bit entropy, exact `iamProvider` shape, nextauth
-  explicit-endpoints + `hanzo-iam` id + `client_secret_basic`, the four new
-  adapters (sveltekit/remix/express/hono) endpoint pinning + guard 401s,
-  passport `/v1/iam` URLs, server header extraction, views-are-real, and
-  dual ESM+CJS resolution of every subpath (incl. the new ones, asserting
-  no `wellKnown` on the shipped nextauth provider).
-
-## Repo
-
-- npm package `@hanzo/iam`. Remote: `hanzoai/iam-sdk` (the git `origin`
-  inside this checkout historically pointed at `hanzoai/iam` — push to
-  `hanzoai/iam-sdk`).
-- `go/` is a separate Go module (tenant helper); unrelated to the JS SDK.
+`cd go && go build ./... && go vet ./... && go test ./...` — same as CI.

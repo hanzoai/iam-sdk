@@ -7,29 +7,20 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  go:
     runs-on: hanzo-build-linux-amd64
-    strategy:
-      matrix:
-        # Node 20 is EOL (2026-04-30) and GitHub Actions deprecated it.
-        # 22 = active LTS (matches the publish workflow), 24 = current.
-        # `node --test` recursive `**` globs require Node >= 21, so the
-        # quoted-glob test script (package.json) needs a >= 21 floor in CI.
-        node-version: [22, 24]
-
+    defaults:
+      run:
+        working-directory: go
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-go@v5
         with:
-          version: 9
+          go-version-file: go/go.mod
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
+      - run: go build ./...
 
-      - run: pnpm install --no-frozen-lockfile
+      - run: go vet ./...
 
-      - run: pnpm build
-
-      - run: pnpm test
+      - run: go test ./...
