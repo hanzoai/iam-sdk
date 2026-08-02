@@ -1,8 +1,8 @@
 /**
  * The single source of truth for Hanzo IAM OIDC endpoint paths.
  *
- * Hanzo IAM is a Casdoor-derived OIDC provider served per-brand from a
- * configurable origin (`serverUrl`): hanzo → https://iam.hanzo.ai,
+ * Hanzo IAM (`hanzoai/iam`) is a clean-room OIDC provider served per-brand from
+ * a configurable origin (`serverUrl`): hanzo → https://iam.hanzo.ai,
  * lux → https://lux.id, zoo → https://zoo.id, bootnode → https://id.bootno.de.
  *
  * These are the ONLY paths. There is no legacy `/oauth/*` and no
