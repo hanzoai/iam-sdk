@@ -1,7 +1,7 @@
 /**
  * Core HTTP client for Hanzo IAM.
  *
- * Speaks pure OIDC / OAuth2 only. No Casdoor `/api/get-*` admin REST.
+ * Speaks pure OIDC / OAuth2 only. No legacy `/api/get-*` admin REST.
  * Identity, users, organizations are read from the validated JWT or
  * the OIDC userinfo endpoint — never from `/api/get-organizations`
  * style admin queries. Surface the IamClient exposes:
@@ -266,7 +266,7 @@ export class IamClient {
   }
 
   // -----------------------------------------------------------------------
-  // User (OIDC userinfo only — no Casdoor /api/get-user)
+  // User (OIDC userinfo only — never a legacy get-user verb)
   // -----------------------------------------------------------------------
 
   /** Fetch user claims from the OIDC userinfo endpoint (OIDC core §5.3). */

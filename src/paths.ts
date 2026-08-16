@@ -1,7 +1,7 @@
 /**
  * The single source of truth for Hanzo IAM OIDC endpoint paths.
  *
- * Hanzo IAM is a Casdoor-derived OIDC provider served per-brand from a
+ * Hanzo IAM is a standards-first OIDC provider served per-brand from a
  * configurable origin (`serverUrl`): hanzo → https://iam.hanzo.ai,
  * lux → https://lux.id, zoo → https://zoo.id, bootnode → https://id.bootno.de.
  *
@@ -46,7 +46,7 @@ export const IAM_PATHS = {
   /** Onboarding state-machine base (steps append `/identity`, etc.). */
   onboarding: "/v1/iam/onboarding",
   /**
-   * Casdoor credential-login endpoint the embedded `<Login>` views POST to.
+   * Credential-login endpoint the embedded `<Login>` views POST to.
    * `type=code` (a client `redirectUri` is present) mints an authorization
    * code returned in `data`; `type=login` establishes the session cookie.
    * This is what the deployed IAM actually authenticates against — the OIDC

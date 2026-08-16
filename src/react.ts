@@ -402,7 +402,7 @@ export function useOrganizations(): OrgState {
   );
 
   // Derive primary org from the JWT (sub="org/username" or owner claim).
-  // No API call — IAM SDK does not query the Casdoor /api/get-organizations
+  // No API call — this SDK never queries a legacy get-organizations verb
   // admin surface. Apps that need a multi-org list must fetch it from
   // their own admin/control-plane API.
   useEffect(() => {
