@@ -3,10 +3,8 @@
 # @hanzo/iam
 
 The one-way TypeScript SDK for authenticating JS apps (Hanzo / Lux / Zoo /
-Bootnode) against **Hanzo IAM** (`hanzoai/iam`), a clean-room OIDC provider
-served per-brand from a configurable `serverUrl`. It is no longer Casdoor-derived
-— the Casdoor fork was retired to `hanzoai/iam-v1` — though some endpoint
-spellings below are inherited from that lineage and are still what IAM serves.
+Bootnode) against **Hanzo IAM**, a standards-first OIDC provider served
+per-brand from a configurable `serverUrl`.
 
 ## The law: one source of truth for paths
 

@@ -2,9 +2,8 @@
 
 # @hanzo/iam
 
-The one-way TypeScript SDK for authenticating against **Hanzo IAM**
-(`hanzoai/iam`) — a clean-room OIDC provider served per-brand from a
-configurable origin:
+The one-way TypeScript SDK for authenticating against **Hanzo IAM** — a
+standards-first OIDC provider served per-brand from a configurable origin:
 
 | Brand | `serverUrl` |
 |-------|-------------|
