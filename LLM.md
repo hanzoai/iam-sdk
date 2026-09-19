@@ -172,14 +172,18 @@ imports — they use structural types so no framework is a dependency):
 - `pnpm typecheck` (`tsc --noEmit` on typescript 7, the native compiler)
   must stay green (`tsconfig.json` sets `jsx: react-jsx` so the `.tsx`
   typechecks when imported from a test).
-- 73 tests cover: locked paths + brand map, `validateToken` matrix (happy /
+- The tests cover: locked paths + brand map, `validateToken` matrix (happy /
   expired / bad-aud-fails / missing-aud-fails / allowMissingAudience /
   tampered), PKCE ≥256-bit entropy, exact `iamProvider` shape, nextauth
   explicit-endpoints + `hanzo-iam` id + `client_secret_basic`, the four new
   adapters (sveltekit/remix/express/hono) endpoint pinning + guard 401s,
   passport `/v1/iam` URLs, server header extraction, views-are-real, and
-  dual ESM+CJS resolution of every subpath (incl. the new ones, asserting
-  no `wellKnown` on the shipped nextauth provider).
+  the shipped build (`src/dist.test.ts`, after `pnpm build`): every file
+  package.json names is built and in the `pnpm pack` list with its
+  declarations, no test file is packed, every exports entry loads as ESM
+  and as CJS, a `.cts` and a `.mts` consumer typecheck against every
+  subpath on `module: node16`, and the shipped nextauth provider has no
+  `wellKnown`.
 
 ## Repo
 

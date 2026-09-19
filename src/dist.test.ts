@@ -1,16 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Verifies the SHIPPED dual-format build: every subpath resolves in both
-// ESM (import) and CJS (require) and typechecks for both kinds of consumer,
-// exports its public surface, and carries no `./billing` entry. Run after
-// `pnpm build`.
+// Verifies the SHIPPED dual-format build: every file package.json names is
+// built and packed, every subpath loads in both ESM (import) and CJS
+// (require) and typechecks for both kinds of consumer, the public surface is
+// there, and no `./billing` entry ships. Run after `pnpm build`.
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -19,8 +19,40 @@ const distPath = (name: string) => fileURLToPath(distUrl(name));
 
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 
+// Every file an exports condition names, plus main, module and types. There
+// are no `types` conditions: TypeScript types a .js by the .d.ts beside it and
+// a .cjs by the .d.cts, so those ship too.
+const targets = (node: unknown): string[] =>
+  typeof node === "string" ? [node] : Object.values(node as object).flatMap(targets);
+const named = [pkg.main, pkg.module, pkg.types, ...targets(pkg.exports)].map((file: string) =>
+  file.replace(/^\.\//, ""),
+);
+const declarationOf = (file: string) => file.replace(/\.js$/, ".d.ts").replace(/\.cjs$/, ".d.cts");
+const shipped: string[] = [...new Set(named.flatMap((file: string) => [file, declarationOf(file)]))];
+
 // "@hanzo/iam", "@hanzo/iam/auth", …: one specifier per exports entry.
 const specifiers = Object.keys(pkg.exports).map((key) => pkg.name + key.slice(1));
+
+test("every file package.json names is built, with its declarations", () => {
+  assert.deepEqual(shipped.filter((file) => !existsSync(join(root, file))), []);
+});
+
+test("the packed tarball holds every file package.json names, and no tests", (t) => {
+  // Scripts off, so packing lists the build instead of redoing it under the
+  // tests that read it. (npm 10's pack runs `prepare` even with
+  // --ignore-scripts; pnpm honours the setting.)
+  const dir = mkdtempSync(join(tmpdir(), "iam-pack-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const { files } = JSON.parse(
+    execFileSync("pnpm", ["pack", "--json", "--pack-destination", dir, "--config.ignore-scripts=true"], {
+      cwd: root,
+      encoding: "utf8",
+    }),
+  );
+  const packed = new Set<string>(files.map((file: { path: string }) => file.path));
+  assert.deepEqual(shipped.filter((file) => !packed.has(file)), []);
+  assert.deepEqual([...packed].filter((file) => file.endsWith(".test.ts")), []);
+});
 
 test("CommonJS and ES module consumers typecheck against every subpath", (t) => {
   // A consumer with this package installed imports every subpath from a .cts
@@ -66,29 +98,12 @@ test("CJS index exports the canonical public surface", () => {
   assert.equal(mod.OIDC_PATHS.token, "/v1/iam/oauth/token");
 });
 
-test("each subpath resolves in both ESM and CJS", async () => {
-  const subpaths = [
-    "paths",
-    "auth",
-    "browser",
-    "server",
-    "types",
-    "react",
-    "views",
-    "nextauth",
-    "sveltekit",
-    "remix",
-    "express",
-    "hono",
-    "passport",
-    "betterauth",
-    "validation",
-  ];
-  for (const name of subpaths) {
-    const esm = await import(distUrl(`${name}.js`).href);
-    assert.ok(esm && typeof esm === "object", `ESM ${name} did not load`);
-    const cjs = require(distPath(`${name}.cjs`));
-    assert.ok(cjs && typeof cjs === "object", `CJS ${name} did not load`);
+test("each subpath loads through the exports map in both ESM and CJS", async () => {
+  for (const specifier of specifiers) {
+    const esm = await import(specifier);
+    assert.ok(esm && typeof esm === "object", `ESM ${specifier} did not load`);
+    const cjs = require(specifier);
+    assert.ok(cjs && typeof cjs === "object", `CJS ${specifier} did not load`);
   }
 });
 

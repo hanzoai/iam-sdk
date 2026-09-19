@@ -91,6 +91,7 @@
   "files": [
     "dist",
     "src",
+    "!src/**/*.test.ts",
     "README.md",
     "LICENSE"
   ],
