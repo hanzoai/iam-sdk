@@ -73,8 +73,10 @@ same canonical paths.
 
 `index`, `paths`, `auth`, `browser`, `server`, `types`, `react`, `views`,
 `nextauth`, `sveltekit`, `remix`, `express`, `hono`, `passport`,
-`betterauth`, `validation`. Dual ESM (`.js`) + CJS (`.cjs`) +
-`.d.ts`/`.d.cts` for each. **No `billing`** — it was a throwing tombstone;
+`betterauth`, `validation`. Dual ESM (`.js`) + CJS (`.cjs`) from tsup, and
+a `.d.ts` per source file from `tsc -p tsconfig.build.json` (tsup's own dts
+plugin sets `baseUrl`, which TypeScript 6+ rejects). **No `billing`** — it
+was a throwing tombstone;
 deleted from src, tsup, and exports. Billing lives in `@hanzo/commerce`.
 
 Framework adapters (all thin, all → `paths.ts`, zero runtime framework
@@ -156,7 +158,8 @@ imports — they use structural types so no framework is a dependency):
 
 ## Build / test
 
-- Node 26 + pnpm 9. `pnpm install && pnpm build` (tsup).
+- Node 26 + pnpm 9. `pnpm install && pnpm build` (tsup for the JS; its
+  `onSuccess` runs `tsc -p tsconfig.build.json` for the declarations).
 - Tests: `pnpm test` → `node --test --import tsx 'src/**/*.test.ts'`.
   `tsx` is a devDependency (native Node TS strips types but does NOT
   rewrite `./x.js` → `./x.ts`, so the test runner needs tsx).

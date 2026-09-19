@@ -43,7 +43,10 @@ export default defineConfig({
     'src/validation.ts'
   ],
   format: ['esm', 'cjs'],
-  dts: true,
+  // Declarations come from tsc (tsconfig.build.json), not tsup's dts
+  // plugin: that plugin sets `baseUrl` on every build, and TypeScript 6+
+  // rejects the option (TS5101).
+  onSuccess: 'tsc -p tsconfig.build.json',
   clean: true,
   sourcemap: true,
   splitting: false,
