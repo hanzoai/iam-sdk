@@ -163,8 +163,9 @@ imports — they use structural types so no framework is a dependency):
 - Tests: `pnpm test` → `node --test --import tsx 'src/**/*.test.ts'`.
   `tsx` is a devDependency (native Node TS strips types but does NOT
   rewrite `./x.js` → `./x.ts`, so the test runner needs tsx).
-- `node_modules/.bin/tsc --noEmit` must stay green (`tsconfig.json` sets
-  `jsx: react-jsx` so the `.tsx` typechecks when imported from a test).
+- `pnpm typecheck` (`tsc --noEmit` on typescript 7, the native compiler)
+  must stay green (`tsconfig.json` sets `jsx: react-jsx` so the `.tsx`
+  typechecks when imported from a test).
 - 73 tests cover: locked paths + brand map, `validateToken` matrix (happy /
   expired / bad-aud-fails / missing-aud-fails / allowMissingAudience /
   tampered), PKCE ≥256-bit entropy, exact `iamProvider` shape, nextauth

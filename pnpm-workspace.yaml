@@ -10,4 +10,4 @@ catalog:
   'passport-oauth2': '^1.8.0'
   'tsup': '^8.5.1'
   'tsx': '^4.23.12'
-  'typescript': '6.0.3'
+  'typescript': '7.0.2'

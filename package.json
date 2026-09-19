@@ -115,7 +115,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "clean": "rm -rf dist",
-    "typecheck": "node_modules/tsgo/bin/tsc --noEmit --incremental false",
+    "typecheck": "tsc --noEmit",
     "prepare": "node -e \"if (!require('fs').existsSync('dist')) { require('child_process').execSync('tsup', { stdio: 'inherit' }) }\"",
     "prepublishOnly": "rm -rf dist && tsup",
     "test": "node --test --import tsx \"src/**/*.test.ts\""
@@ -137,7 +137,6 @@
     "@types/node": "catalog:",
     "@types/passport-oauth2": "catalog:",
     "@types/react": "catalog:",
-    "tsgo": "npm:typescript@7.0.2",
     "tsup": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:"
