@@ -161,7 +161,9 @@ imports — they use structural types so no framework is a dependency):
 
 ## Build / test
 
-- Node 26 + pnpm 9. `pnpm install` runs `prepare`, which is `pnpm build`.
+- Node 26 + pnpm 9; the package needs Node ≥ 22.12, the first release that
+  `require()`s an ES module unflagged (jose 6 is ESM only, and the CJS build
+  requires it). `pnpm install` runs `prepare`, which is `pnpm build`.
 - `pnpm build` = `rm -rf dist && tsup && pnpm declarations`, each step
   chained with `&&`, so a failed or killed `tsc` fails the build.
   `pnpm dev` runs `tsup --watch`, which cleans nothing, and reruns
