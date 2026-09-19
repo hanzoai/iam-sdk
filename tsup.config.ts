@@ -43,11 +43,10 @@ export default defineConfig({
     'src/validation.ts'
   ],
   format: ['esm', 'cjs'],
-  // Declarations come from tsc (tsconfig.build.json), not tsup's dts
-  // plugin: that plugin sets `baseUrl` on every build, and TypeScript 6+
-  // rejects the option (TS5101).
-  onSuccess: 'tsc -p tsconfig.build.json',
-  clean: true,
+  // No dts and no clean. TypeScript 7 has no JS API for tsup's dts plugin to
+  // load, so tsc writes the declarations ("declarations" in package.json),
+  // and a `tsup --watch` rebuild must leave them where they are. `build`
+  // empties dist itself.
   sourcemap: true,
   splitting: false,
   treeshake: true,

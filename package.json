@@ -113,11 +113,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
+    "build": "rm -rf dist && tsup && pnpm declarations",
+    "declarations": "tsc -p tsconfig.build.json",
+    "dev": "tsup --watch --onSuccess \"pnpm declarations\"",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
-    "prepare": "node -e \"if (!require('fs').existsSync('dist')) { require('child_process').execSync('tsup', { stdio: 'inherit' }) }\"",
+    "prepare": "pnpm build",
     "test": "node --test --import tsx \"src/**/*.test.ts\""
   },
   "dependencies": {

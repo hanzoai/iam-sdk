@@ -158,8 +158,11 @@ imports — they use structural types so no framework is a dependency):
 
 ## Build / test
 
-- Node 26 + pnpm 9. `pnpm install && pnpm build` (tsup for the JS; its
-  `onSuccess` runs `tsc -p tsconfig.build.json` for the declarations).
+- Node 26 + pnpm 9. `pnpm install` runs `prepare`, which is `pnpm build`.
+- `pnpm build` = `rm -rf dist && tsup && pnpm declarations`, each step
+  chained with `&&`, so a failed or killed `tsc` fails the build.
+  `pnpm dev` runs `tsup --watch`, which cleans nothing, and reruns
+  `pnpm declarations` after every rebuild, so types never drop out.
 - Tests: `pnpm test` → `node --test --import tsx 'src/**/*.test.ts'`.
   `tsx` is a devDependency (native Node TS strips types but does NOT
   rewrite `./x.js` → `./x.ts`, so the test runner needs tsx).
