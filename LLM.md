@@ -71,12 +71,15 @@ same canonical paths.
 
 ## Subpath entries (tsup `entry[]` ↔ package.json `exports`)
 
-`index`, `paths`, `auth`, `browser`, `server`, `types`, `react`, `views`,
-`nextauth`, `sveltekit`, `remix`, `express`, `hono`, `passport`,
-`betterauth`, `validation`. Dual ESM (`.js`) + CJS (`.cjs`) from tsup, and
-a `.d.ts` per source file from `tsc -p tsconfig.build.json` (tsup's own dts
-plugin sets `baseUrl`, which TypeScript 6+ rejects). **No `billing`** — it
-was a throwing tombstone;
+`index`, `paths`, `auth`, `browser`, `session`, `server`, `types`, `react`,
+`views`, `nextauth`, `sveltekit`, `remix`, `express`, `hono`, `passport`,
+`betterauth`, `validation`. Dual ESM (`.js`) + CJS (`.cjs`) from tsup. The
+declarations come from `tsc -p tsconfig.build.json`, a `.d.ts` per source
+file, and `scripts/cts.mjs` copies each to a `.d.cts` whose relative imports
+name `.cjs`, so a `require` consumer gets CommonJS types. The exports map has
+no `types` conditions: TypeScript types a `.js` by the `.d.ts` beside it and a
+`.cjs` by the `.d.cts`. tsup's own dts plugin cannot load on TypeScript 7,
+which has no JS API. **No `billing`** — it was a throwing tombstone;
 deleted from src, tsup, and exports. Billing lives in `@hanzo/commerce`.
 
 Framework adapters (all thin, all → `paths.ts`, zero runtime framework
