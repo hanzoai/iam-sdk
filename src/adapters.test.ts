@@ -19,14 +19,14 @@ const IAM = { serverUrl: "https://iam.hanzo.ai", clientId: "hanzo-app", clientSe
 test("BRAND_SERVER_URLS maps every brand to its canonical origin", () => {
   assert.equal(BRAND_SERVER_URLS.hanzo, "https://iam.hanzo.ai");
   assert.equal(BRAND_SERVER_URLS.lux, "https://lux.id");
-  assert.equal(BRAND_SERVER_URLS.zoo, "https://zoo.id");
+  assert.equal(BRAND_SERVER_URLS.zoo, "https://zoolabs.id");
   assert.equal(BRAND_SERVER_URLS.bootnode, "https://id.bootno.de");
   assert.equal(BRAND_SERVER_URLS.pars, "https://pars.id");
 });
 
 test("serverUrlForBrand resolves a brand to its origin", () => {
   assert.equal(serverUrlForBrand("lux"), "https://lux.id");
-  assert.equal(serverUrlForBrand("zoo"), "https://zoo.id");
+  assert.equal(serverUrlForBrand("zoo"), "https://zoolabs.id");
 });
 
 // --- sveltekit (Auth.js) ---------------------------------------------------

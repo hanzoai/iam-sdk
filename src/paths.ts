@@ -3,7 +3,8 @@
  *
  * Hanzo IAM is a standards-first OIDC provider served per-brand from a
  * configurable origin (`serverUrl`): hanzo → https://iam.hanzo.ai,
- * lux → https://lux.id, zoo → https://zoo.id, bootnode → https://id.bootno.de.
+ * lux → https://lux.id, zoo → https://zoolabs.id, bootnode → https://id.bootno.de,
+ * pars → https://pars.id.
  *
  * These are the ONLY paths. There is no legacy `/oauth/*` and no
  * `/api/login/*`. Every module in this SDK references `OIDC_PATHS` —
@@ -86,7 +87,7 @@ export type IamPathKey = keyof typeof IAM_PATHS;
 export const BRAND_SERVER_URLS = {
   hanzo: "https://iam.hanzo.ai",
   lux: "https://lux.id",
-  zoo: "https://zoo.id",
+  zoo: "https://zoolabs.id",
   bootnode: "https://id.bootno.de",
   pars: "https://pars.id",
 } as const;

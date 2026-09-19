@@ -42,7 +42,7 @@ test("IAM_PATHS web3 SIWx endpoints are the canonical /v1/iam/web3/* values", ()
 test("iamUrl concatenates origin + canonical path, trimming slashes", () => {
   assert.equal(iamUrl("https://iam.hanzo.ai", "token"), "https://iam.hanzo.ai/v1/iam/oauth/token");
   assert.equal(iamUrl("https://lux.id/", "authorize"), "https://lux.id/v1/iam/oauth/authorize");
-  assert.equal(iamUrl("https://zoo.id///", "userinfo"), "https://zoo.id/v1/iam/oauth/userinfo");
+  assert.equal(iamUrl("https://zoolabs.id///", "userinfo"), "https://zoolabs.id/v1/iam/oauth/userinfo");
   assert.equal(iamUrl("https://id.bootno.de", "jwks"), "https://id.bootno.de/v1/iam/.well-known/jwks");
 });
 
@@ -56,7 +56,7 @@ test("BRAND_SERVER_URLS is the single brand→origin source of truth", () => {
   assert.deepEqual(BRAND_SERVER_URLS, {
     hanzo: "https://iam.hanzo.ai",
     lux: "https://lux.id",
-    zoo: "https://zoo.id",
+    zoo: "https://zoolabs.id",
     bootnode: "https://id.bootno.de",
     pars: "https://pars.id",
   });
@@ -65,7 +65,7 @@ test("BRAND_SERVER_URLS is the single brand→origin source of truth", () => {
 test("serverUrlForBrand resolves each brand", () => {
   assert.equal(serverUrlForBrand("hanzo"), "https://iam.hanzo.ai");
   assert.equal(serverUrlForBrand("lux"), "https://lux.id");
-  assert.equal(serverUrlForBrand("zoo"), "https://zoo.id");
+  assert.equal(serverUrlForBrand("zoo"), "https://zoolabs.id");
   assert.equal(serverUrlForBrand("bootnode"), "https://id.bootno.de");
   assert.equal(serverUrlForBrand("pars"), "https://pars.id");
 });

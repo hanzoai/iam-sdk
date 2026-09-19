@@ -9,7 +9,7 @@ standards-first OIDC provider served per-brand from a configurable origin:
 |-------|-------------|
 | Hanzo | `https://iam.hanzo.ai` |
 | Lux | `https://lux.id` |
-| Zoo | `https://zoo.id` |
+| Zoo | `https://zoolabs.id` |
 | Bootnode | `https://id.bootno.de` |
 | Pars | `https://pars.id` |
 
