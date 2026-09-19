@@ -1,10 +1,19 @@
-import { test } from "node:test";
+import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Verifies the SHIPPED dual-format build: every file package.json names is
@@ -33,36 +42,54 @@ const shipped: string[] = [...new Set(named.flatMap((file: string) => [file, dec
 // "@hanzo/iam", "@hanzo/iam/auth", …: one specifier per exports entry.
 const specifiers = Object.keys(pkg.exports).map((key) => pkg.name + key.slice(1));
 
-test("every file package.json names is built, with its declarations", () => {
-  assert.deepEqual(shipped.filter((file) => !existsSync(join(root, file))), []);
-});
+// The tarball `pnpm pack` makes, which is what a user installs. Scripts off,
+// so packing reads the build instead of redoing it under the tests that read
+// it. (npm 10's pack runs `prepare` even with --ignore-scripts; pnpm honours
+// the setting.)
+const work = mkdtempSync(join(tmpdir(), "iam-dist-"));
+let tarball: string;
+let packed: Set<string>;
 
-test("the packed tarball holds every file package.json names, and no tests", (t) => {
-  // Scripts off, so packing lists the build instead of redoing it under the
-  // tests that read it. (npm 10's pack runs `prepare` even with
-  // --ignore-scripts; pnpm honours the setting.)
-  const dir = mkdtempSync(join(tmpdir(), "iam-pack-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const { files } = JSON.parse(
-    execFileSync("pnpm", ["pack", "--json", "--pack-destination", dir, "--config.ignore-scripts=true"], {
+before(() => {
+  const { filename, files } = JSON.parse(
+    execFileSync("pnpm", ["pack", "--json", "--pack-destination", work, "--config.ignore-scripts=true"], {
       cwd: root,
       encoding: "utf8",
     }),
   );
-  const packed = new Set<string>(files.map((file: { path: string }) => file.path));
+  tarball = join(work, basename(filename));
+  packed = new Set(files.map((file: { path: string }) => file.path));
+});
+
+after(() => rmSync(work, { recursive: true, force: true }));
+
+test("every file package.json names is built, with its declarations", () => {
+  assert.deepEqual(shipped.filter((file) => !existsSync(join(root, file))), []);
+});
+
+test("the packed tarball holds every file package.json names, and no tests", () => {
   assert.deepEqual(shipped.filter((file) => !packed.has(file)), []);
   assert.deepEqual([...packed].filter((file) => file.endsWith(".test.ts")), []);
 });
 
-test("CommonJS and ES module consumers typecheck against every subpath", (t) => {
-  // A consumer with this package installed imports every subpath from a .cts
-  // (the `require` condition) and a .mts (`import`). node16 cannot require()
-  // an ES module, so a CommonJS build typed as ESM fails here with TS1479;
-  // skipLibCheck stays off so the declarations themselves are checked too.
-  const dir = mkdtempSync(join(tmpdir(), "iam-consumer-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  mkdirSync(join(dir, "node_modules", "@hanzo"), { recursive: true });
-  symlinkSync(root, join(dir, "node_modules", "@hanzo", "iam"), "dir");
+test("CommonJS and ES module consumers typecheck against every subpath", () => {
+  // The consumer has what an install gives it: the tarball, the packages in
+  // `dependencies`, and React's types, which an app using the react or views
+  // subpath installs beside react, the peer. Nothing from this repo's
+  // devDependencies is there, so a declaration that needs one fails here as
+  // it would for a user. It imports every subpath from a .cts (the `require`
+  // condition) and a .mts (`import`). node16 cannot require() an ES module,
+  // so a CommonJS build typed as ESM fails with TS1479; skipLibCheck stays
+  // off so the declarations themselves are checked too.
+  const dir = join(work, "consumer");
+  const installed = join(dir, "node_modules", pkg.name);
+  mkdirSync(installed, { recursive: true });
+  execFileSync("tar", ["-xzf", tarball, "-C", installed, "--strip-components=1"]);
+  for (const name of [...Object.keys(pkg.dependencies), "@types/react"]) {
+    const link = join(dir, "node_modules", name);
+    mkdirSync(dirname(link), { recursive: true });
+    symlinkSync(realpathSync(join(root, "node_modules", name)), link, "dir");
+  }
   const source =
     specifiers.map((specifier, i) => `import * as m${i} from "${specifier}";`).join("\n") +
     `\nexport const all = [${specifiers.map((_, i) => `m${i}`).join(", ")}];\n`;
