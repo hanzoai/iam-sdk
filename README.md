@@ -398,8 +398,10 @@ isValidEmail("user@example.com"); // true
 | `@hanzo/iam/types` | all types |
 | `@hanzo/iam/validation` | `isValidPhone`, `isValidEmail` |
 
-Bare `@hanzo/iam` resolves to the browser build under a browser bundler
-and the Node build under Node, via package `exports` conditions.
+Bare `@hanzo/iam` is one build for a browser bundle, a Worker and Node. It
+imports nothing but `jose`, so every name in its row resolves in each of them.
+`@hanzo/iam/browser` is the browser half alone, without `IamClient` or
+`validateToken`.
 
 ## Configuration
 

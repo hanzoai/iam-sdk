@@ -14,12 +14,13 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 // Verifies the SHIPPED dual-format build: every file package.json names is
 // built and packed, every subpath loads in both ESM (import) and CJS
-// (require) and typechecks for both kinds of consumer, the public surface is
-// there, and no `./billing` entry ships. Run after `pnpm build`.
+// (require) and typechecks for both kinds of consumer, every file an entry
+// names exports the same names, the public surface is there, and no
+// `./billing` entry ships. Run after `pnpm build`.
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -131,6 +132,26 @@ test("each subpath loads through the exports map in both ESM and CJS", async () 
     assert.ok(esm && typeof esm === "object", `ESM ${specifier} did not load`);
     const cjs = require(specifier);
     assert.ok(cjs && typeof cjs === "object", `CJS ${specifier} did not load`);
+  }
+});
+
+test("every file an exports entry names has the same exports", async () => {
+  // A bundler takes the first condition it matches (browser, worker, …) while
+  // TypeScript types the entry from one .d.ts, so a condition whose file
+  // exports fewer names typechecks and then fails to bundle.
+  for (const [key, entry] of Object.entries(pkg.exports)) {
+    const files = [...new Set(targets(entry))];
+    const names = await Promise.all(
+      files.map(async (file) => {
+        const path = join(root, file);
+        return Object.keys(file.endsWith(".cjs") ? require(path) : await import(pathToFileURL(path).href));
+      }),
+    );
+    const all = [...new Set(names.flat())].sort();
+    const lacking = files
+      .map((file, i) => [file, all.filter((name) => !names[i].includes(name))] as const)
+      .filter(([, lacks]) => lacks.length > 0);
+    assert.deepEqual(Object.fromEntries(lacking), {}, `"${key}" names files that export different names`);
   }
 });
 
