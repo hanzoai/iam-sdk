@@ -177,7 +177,10 @@ imports — they use structural types so no framework is a dependency):
 
 ## Repo
 
-- npm package `@hanzo/iam`. Remote: `hanzoai/iam-sdk` (the git `origin`
-  inside this checkout historically pointed at `hanzoai/iam` — push to
-  `hanzoai/iam-sdk`).
+- **Retired mirror.** `@hanzo/iam` is built and published from
+  `hanzo-js/iam`, which holds the npm line (0.21.x). package.json here is
+  `"private": true`, so npm and pnpm refuse to publish it; never tag a
+  release here either (`v0.13.8` exists as a tag and on npm already).
+- Remote: `hanzoai/iam-sdk`. main is kept building and tested; a change
+  that should reach npm goes to `hanzo-js/iam`.
 - `go/` is a separate Go module (tenant helper); unrelated to the JS SDK.

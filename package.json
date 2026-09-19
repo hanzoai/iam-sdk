@@ -1,6 +1,7 @@
 {
   "name": "@hanzo/iam",
   "version": "0.13.8",
+  "private": true,
   "description": "TypeScript SDK for Hanzo IAM \u2014 OIDC auth, JWT validation, OAuth2 PKCE, user/org/project APIs",
   "type": "module",
   "main": "dist/index.cjs",
@@ -117,7 +118,6 @@
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "prepare": "node -e \"if (!require('fs').existsSync('dist')) { require('child_process').execSync('tsup', { stdio: 'inherit' }) }\"",
-    "prepublishOnly": "rm -rf dist && tsup",
     "test": "node --test --import tsx \"src/**/*.test.ts\""
   },
   "dependencies": {
@@ -163,9 +163,6 @@
     "url": "https://github.com/hanzoai/iam-sdk/issues"
   },
   "author": "Hanzo AI <engineering@hanzo.ai>",
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=18"
   },
